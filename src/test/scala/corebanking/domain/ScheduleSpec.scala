@@ -68,5 +68,14 @@ object ScheduleSpec extends ZIOSpecDefault:
     },
     test("amortization breakdown of an empty installment list is empty") {
       assertTrue(Schedule.amortizationBreakdown(terms.principal, terms.annualRate, Nil) == Nil)
+    },
+    test("amortization breakdown of the full 12-installment schedule leaves a small residual") {
+      val installments = Schedule
+        .dueDates(terms)
+        .zipWithIndex
+        .map((dueDate, i) => (i + 1, dueDate, BigDecimal("434.94")))
+      val breakdown =
+        Schedule.amortizationBreakdown(terms.principal, terms.annualRate, installments)
+      assertTrue(breakdown.map(_.principal).sum == BigDecimal("4999.97"))
     }
   )

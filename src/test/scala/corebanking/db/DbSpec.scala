@@ -9,8 +9,7 @@ import corebanking.config.DbConfig
 
 /**
  * Proves the shared `Transactor` and the `LocalDate` codec work end-to-end against the real
- * docker-compose Postgres (must already be up: `docker compose up -d`), the same convention
- * `SchemaMigrationSpec` uses.
+ * docker-compose Postgres (must already be up: `docker compose up -d`).
  */
 object DbSpec extends ZIOSpecDefault:
 

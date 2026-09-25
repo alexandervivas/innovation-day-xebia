@@ -3,8 +3,7 @@ package corebanking.domain
 import java.time.LocalDate
 
 /**
- * One installment's principal/interest split, replayed from the standard declining-balance formula
- * over whatever `amount_due` rows the DB actually holds — not a stored column.
+ * One installment's principal/interest split, replayed from the standard declining-balance formula.
  */
 final case class InstallmentBreakdown(
     seq: Int,
@@ -31,20 +30,20 @@ object Schedule:
   /**
    * Replays each installment's interest/principal split against a declining balance, starting from
    * `principal` and stepping at `annualRate / 12` each period — the scheduled split, not a real
-   * repayment's fees-then-interest-then-principal allocation (that's CB-08's job).
+   * repayment's allocation. A flat installment amount may leave a small residual after the final
+   * period; absorbing it is a repayment-allocation decision, not this schedule's.
    */
   def amortizationBreakdown(
       principal: BigDecimal,
       annualRate: BigDecimal,
       installments: List[(Int, LocalDate, BigDecimal)]
   ): List[InstallmentBreakdown] =
-    val monthlyRate = annualRate.toDouble / 12.0
+    val monthlyRate = annualRate / 12
     val sorted = installments.sortBy(_._1)
     val (_, breakdownReversed) =
       sorted.foldLeft((principal, List.empty[InstallmentBreakdown])) {
         case ((balance, acc), (seq, dueDate, amountDue)) =>
-          val interest =
-            (balance * BigDecimal(monthlyRate)).setScale(2, BigDecimal.RoundingMode.HALF_UP)
+          val interest = (balance * monthlyRate).setScale(2, BigDecimal.RoundingMode.HALF_UP)
           val principalPortion = amountDue - interest
           val nextBalance = balance - principalPortion
           val step = InstallmentBreakdown(seq, dueDate, amountDue, interest, principalPortion)

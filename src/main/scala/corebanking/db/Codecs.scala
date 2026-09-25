@@ -7,7 +7,7 @@ import com.augustnagro.magnum.DbCodec
 
 /**
  * Maps SQL `DATE` columns (booking date, value date, opened-on, due date, system clock) to
- * `LocalDate`; magnum has no built-in codec for it.
+ * `LocalDate`.
  */
 given localDateCodec: DbCodec[LocalDate] with
   val cols: IArray[Int] = IArray(Types.DATE)
