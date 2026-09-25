@@ -2,6 +2,7 @@ package corebanking
 
 import java.io.{BufferedReader, InputStreamReader, OutputStreamWriter}
 import java.nio.charset.StandardCharsets
+import java.sql.DriverManager
 import java.util.concurrent.TimeUnit
 
 import scala.jdk.CollectionConverters.*
@@ -10,6 +11,9 @@ import zio.*
 import zio.json.*
 import zio.test.*
 import zio.test.TestAspect.*
+
+import corebanking.config.DbConfig
+import corebanking.db.FlywayRunner
 
 /**
  * CB-02 headline AC, verified at the process level rather than in-process, because the guard's
@@ -88,12 +92,78 @@ object ServerProcessSpec extends ZIOSpecDefault:
 
   private val dbEnvKeys = Set("DATABASE_URL", "POSTGRES_USER", "POSTGRES_PASSWORD")
 
+  private val getClientMissingCallFrame =
+    """{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"get_client","arguments":{"clientId":"018f3f00-0000-7000-8000-0000000000ff"}}}"""
+
+  // Reserved for the seeded happy-path client fixture below.
+  private val SeededClientId = "018f3f00-0000-7000-8000-0000000000e1"
+  private val SeededClientName = "Server Process Spec Client"
+  private val SeededClientOpenedOn = "2026-01-01"
+
+  private val getClientSeededCallFrame =
+    s"""{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"get_client","arguments":{"clientId":"$SeededClientId"}}}"""
+
+  // Reserved for the seeded happy-path loan schedule fixture below.
+  private val SeededLoanAccountId = "018f3f00-0000-7000-8000-0000000000e2"
+  private val SeededLoanProductId = "018f3f00-0000-7000-8000-0000000000e3"
+
+  private val getLoanScheduleSeededCallFrame =
+    s"""{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"get_loan_schedule","arguments":{"loanId":"$SeededLoanAccountId"}}}"""
+
+  /** A client row exists for the happy-path calls. */
+  private def seedClient(): Task[Unit] =
+    ZIO.attemptBlocking {
+      val config = DbConfig.fromEnv()
+      FlywayRunner.migrate(config)
+      val conn = DriverManager.getConnection(config.url, config.user, config.password)
+      try
+        val stmt = conn.createStatement()
+        stmt.execute(
+          "INSERT INTO clients (id, display_name, opened_on) " +
+            s"VALUES ('$SeededClientId', '$SeededClientName', DATE '$SeededClientOpenedOn') " +
+            "ON CONFLICT (id) DO NOTHING"
+        )
+      finally conn.close()
+    }
+
+  /** A loan account with no installments exists for the seeded schedule call. */
+  private def seedLoanAccount(): Task[Unit] =
+    ZIO.attemptBlocking {
+      val config = DbConfig.fromEnv()
+      val conn = DriverManager.getConnection(config.url, config.user, config.password)
+      try
+        val stmt = conn.createStatement()
+        stmt.execute(
+          "INSERT INTO products (id, name, kind, annual_rate, term_months) " +
+            s"VALUES ('$SeededLoanProductId', 'Server Process Spec Loan', 'loan', 0.08, 12) " +
+            "ON CONFLICT (id) DO NOTHING"
+        )
+        stmt.execute(
+          "INSERT INTO accounts (id, client_id, product_id, kind, opened_on) " +
+            s"VALUES ('$SeededLoanAccountId', '$SeededClientId', '$SeededLoanProductId', 'loan', DATE '$SeededClientOpenedOn') " +
+            "ON CONFLICT (id) DO NOTHING"
+        )
+        stmt.execute(
+          "INSERT INTO loans (account_id, principal, annual_rate, term_months, disbursement_date, installment_amount, grace_days, late_fee) " +
+            s"VALUES ('$SeededLoanAccountId', 5000.00, 0.08, 12, DATE '$SeededClientOpenedOn', 434.94, 7, 15.00) " +
+            "ON CONFLICT (account_id) DO NOTHING"
+        )
+      finally conn.close()
+    }
+
+  private val getTransactionsNoDatesCallFrame =
+    """{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"get_transactions","arguments":{"accountId":"018f3f00-0000-7000-8000-0000000000ff"}}}"""
+  private val getTransactionsWithDatesCallFrame =
+    """{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"get_transactions","arguments":{"accountId":"018f3f00-0000-7000-8000-0000000000ff","startDate":"2026-01-01","endDate":"2026-12-31"}}}"""
+
   /**
    * Runs the sandbox happy path: calls `ping`, `get_audit_log`, and `get_system_date`, and checks
    * the audit trail recorded the ping.
    */
   private def runHappyPath(): Task[HandshakeOutcome] =
     for
+      _ <- seedClient()
+      _ <- seedLoanAccount()
       proc <- spawn(sys.env.filter((k, _) => dbEnvKeys(k)) ++ Map("CORE_ENV" -> "sandbox"))
       stderrFiber <- readAllBytes(proc.getErrorStream).fork
       result <- handshake(proc)
@@ -140,6 +210,21 @@ object ServerProcessSpec extends ZIOSpecDefault:
 
       writeFrame(getSystemDateCallFrame)
       readUntil("\"id\":4")
+
+      writeFrame(getClientMissingCallFrame)
+      readUntil("\"id\":5")
+
+      writeFrame(getTransactionsNoDatesCallFrame)
+      readUntil("\"id\":6")
+
+      writeFrame(getTransactionsWithDatesCallFrame)
+      readUntil("\"id\":7")
+
+      writeFrame(getClientSeededCallFrame)
+      readUntil("\"id\":8")
+
+      writeFrame(getLoanScheduleSeededCallFrame)
+      readUntil("\"id\":9")
 
       proc.getOutputStream.close()
 
@@ -191,6 +276,33 @@ object ServerProcessSpec extends ZIOSpecDefault:
   private object GetSystemDateEnvelope:
     given JsonDecoder[GetSystemDateData] = DeriveJsonDecoder.gen[GetSystemDateData]
     given JsonDecoder[GetSystemDateEnvelope] = DeriveJsonDecoder.gen[GetSystemDateEnvelope]
+
+  final private case class ClientEnvelope(env: String, data: ClientEnvelopeData)
+  final private case class ClientEnvelopeData(id: String, displayName: String, openedOn: String)
+
+  private object ClientEnvelope:
+    given JsonDecoder[ClientEnvelopeData] = DeriveJsonDecoder.gen[ClientEnvelopeData]
+    given JsonDecoder[ClientEnvelope] = DeriveJsonDecoder.gen[ClientEnvelope]
+
+  final private case class LoanScheduleEnvelope(env: String, data: List[LoanScheduleEnvelopeData])
+  final private case class LoanScheduleEnvelopeData(
+      loanId: String,
+      seq: Int,
+      dueDate: String,
+      amountDue: BigDecimal,
+      interest: BigDecimal,
+      principal: BigDecimal
+  )
+
+  private object LoanScheduleEnvelope:
+    given JsonDecoder[LoanScheduleEnvelopeData] = DeriveJsonDecoder.gen[LoanScheduleEnvelopeData]
+    given JsonDecoder[LoanScheduleEnvelope] = DeriveJsonDecoder.gen[LoanScheduleEnvelope]
+
+  private def contentText(line: String): Either[String, String] =
+    line
+      .fromJson[ToolCallResponse]
+      .flatMap(_.result.content.headOption.toRight("no content item in tools/call result"))
+      .map(_.text)
 
   def spec: Spec[TestEnvironment & Scope, Any] =
     suite("Server process (CB-02 env guard, process-level)")(
@@ -252,6 +364,64 @@ object ServerProcessSpec extends ZIOSpecDefault:
             .exists(env =>
               env.env == "sandbox" && env.data.currentDate.matches("""\d{4}-\d{2}-\d{2}""")
             )
+        )
+      },
+      test("CORE_ENV=sandbox: get_client on an unknown id comes back as a tool-call error") {
+        for
+          outcome <- runHappyPath()
+          toolCallLine = outcome.stdoutLines.find(_.contains("\"id\":5"))
+        yield assertTrue(
+          toolCallLine.isDefined,
+          toolCallLine.get.fromJson[ToolCallResponse].map(_.result.isError) == Right(true),
+          contentText(toolCallLine.get).map(_.contains("no client with id")) == Right(true)
+        )
+      },
+      test("CORE_ENV=sandbox: get_transactions decodes both with and without optional date args") {
+        for
+          outcome <- runHappyPath()
+          noDatesLine = outcome.stdoutLines.find(_.contains("\"id\":6"))
+          withDatesLine = outcome.stdoutLines.find(_.contains("\"id\":7"))
+        yield assertTrue(
+          noDatesLine.isDefined,
+          withDatesLine.isDefined,
+          // Both calls reach the same "unknown account" error — the request is understood either way.
+          noDatesLine.get.fromJson[ToolCallResponse].map(_.result.isError) == Right(true),
+          withDatesLine.get.fromJson[ToolCallResponse].map(_.result.isError) == Right(true),
+          contentText(noDatesLine.get).map(_.contains("no account with id")) == Right(true),
+          contentText(withDatesLine.get).map(_.contains("no account with id")) == Right(true)
+        )
+      },
+      test("CORE_ENV=sandbox: get_client on a seeded id returns a real, non-error envelope") {
+        for
+          outcome <- runHappyPath()
+          toolCallLine = outcome.stdoutLines.find(_.contains("\"id\":8"))
+        yield assertTrue(
+          toolCallLine.isDefined,
+          toolCallLine.get.fromJson[ToolCallResponse].map(_.result.isError) == Right(false),
+          contentText(toolCallLine.get).flatMap(_.fromJson[ClientEnvelope]) == Right(
+            ClientEnvelope(
+              env = "sandbox",
+              data = ClientEnvelopeData(
+                id = SeededClientId,
+                displayName = SeededClientName,
+                openedOn = SeededClientOpenedOn
+              )
+            )
+          )
+        )
+      },
+      test(
+        "CORE_ENV=sandbox: get_loan_schedule on a seeded loan account returns a real, non-error envelope"
+      ) {
+        for
+          outcome <- runHappyPath()
+          toolCallLine = outcome.stdoutLines.find(_.contains("\"id\":9"))
+        yield assertTrue(
+          toolCallLine.isDefined,
+          toolCallLine.get.fromJson[ToolCallResponse].map(_.result.isError) == Right(false),
+          contentText(toolCallLine.get).flatMap(_.fromJson[LoanScheduleEnvelope]) == Right(
+            LoanScheduleEnvelope(env = "sandbox", data = Nil)
+          )
         )
       }
     ) @@ sequential @@ timeout(2.minutes)

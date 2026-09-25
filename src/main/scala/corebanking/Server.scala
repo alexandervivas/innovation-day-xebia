@@ -1,8 +1,11 @@
 package corebanking
 
+import java.util.UUID
+
 import scala.util.{Failure, Try}
 import scala.util.control.NonFatal
 
+import com.augustnagro.magnum.{Transactor, connect}
 import com.tjclp.fastmcp.{*, given}
 import zio.json.*
 
@@ -15,6 +18,7 @@ import corebanking.tools.{
   AuditLogSummary,
   GetAuditLog,
   GetAuditLogRequest,
+  GetClient,
   GetSystemDate,
   Ping,
   ToolResponse
@@ -67,7 +71,7 @@ object Server extends McpServerApp[Stdio, Server.type]:
   /** The ledger's shared database connection, ready before any tool call. */
   private val dbConfig: DbConfig = DbConfig.fromEnv()
   FlywayRunner.migrate(dbConfig)
-  private val transactor = Db.transactor(dbConfig)
+  private val transactor: Transactor = Db.transactor(dbConfig)
 
   override def name: String = "core-banking-mcp"
   override def version: String = "0.1.0"
@@ -163,3 +167,11 @@ object Server extends McpServerApp[Stdio, Server.type]:
           )
           Failure(error)
       }
+
+  @Tool(
+    name = Some("get_client"),
+    description = Some("Returns a client's display name and opened-on date"),
+    readOnlyHint = Some(true)
+  )
+  def getClient(clientId: UUID): String =
+    connect(transactor)(GetClient.response(coreEnv, clientId))
