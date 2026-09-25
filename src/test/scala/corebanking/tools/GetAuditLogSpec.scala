@@ -9,20 +9,13 @@ import zio.test.TestAspect.*
 import corebanking.config.DbConfig
 import corebanking.db.{Db, FlywayRunner}
 
-/**
- * `GetAuditLog.run` is the query behind the `get_audit_log` tool. Each test tags its rows with a
- * unique `tool_name` prefix and filters on it, so this suite stays correct as the table accumulates
- * rows from every other spec that also exercises `audit_log`.
- */
+/** `GetAuditLog.run` is the query behind the `get_audit_log` tool. */
 object GetAuditLogSpec extends ZIOSpecDefault:
 
   private val config = DbConfig.fromEnv()
   private val xa = Db.transactor(config)
 
-  /**
-   * Inserts one row with an explicit `called_at`, bypassing `AuditLog.record`'s `now()` default so
-   * time-window assertions are deterministic.
-   */
+  /** Seeds one `audit_log` row at a specific `called_at`, for time-window tests. */
   private def seed(toolName: String, calledAt: String): Task[Unit] =
     ZIO.attemptBlocking {
       val conn = DriverManager.getConnection(config.url, config.user, config.password)
@@ -41,12 +34,14 @@ object GetAuditLogSpec extends ZIOSpecDefault:
       test("returns rows between start_time and end_time inclusive, ordered by called_at") {
         val suffix = java.util.UUID.randomUUID()
         val beforeName = s"get-audit-log-spec-before-$suffix"
-        val inRangeName = s"get-audit-log-spec-in-range-$suffix"
+        val firstInRangeName = s"get-audit-log-spec-in-range-a-$suffix"
+        val secondInRangeName = s"get-audit-log-spec-in-range-b-$suffix"
         val afterName = s"get-audit-log-spec-after-$suffix"
         for
           _ <- ZIO.attemptBlocking(FlywayRunner.migrate(config))
           _ <- seed(beforeName, "2020-01-01T00:00:00Z")
-          _ <- seed(inRangeName, "2020-01-02T00:00:00Z")
+          _ <- seed(secondInRangeName, "2020-01-02T12:00:00Z")
+          _ <- seed(firstInRangeName, "2020-01-02T06:00:00Z")
           _ <- seed(afterName, "2020-01-03T00:00:00Z")
           entries <- ZIO.attempt(
             GetAuditLog.run(
@@ -60,7 +55,7 @@ object GetAuditLogSpec extends ZIOSpecDefault:
             .filter(name =>
               name.startsWith("get-audit-log-spec-") && name.endsWith(suffix.toString)
             )
-        yield assertTrue(names == List(inRangeName))
+        yield assertTrue(names == List(firstInRangeName, secondInRangeName))
       },
       test("returns the full history when both bounds are omitted") {
         val unboundedName = s"get-audit-log-spec-unbounded-${java.util.UUID.randomUUID()}"
