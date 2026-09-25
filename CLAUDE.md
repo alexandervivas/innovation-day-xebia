@@ -1,6 +1,6 @@
 # CLAUDE.md – Core Banking MCP
 
-This is an MCP server for testing backdated transactions in core banking. Built in one Innovation Day at Xebia. Stack: Scala 3, sbt, ZIO 2, fast-mcp-scala (annotation-driven tools), Postgres 16, Flyway migrations.
+This is an MCP server for testing backdated transactions in core banking. Built in one Innovation Day at Xebia. Stack: Scala 3, sbt, ZIO 2, fast-mcp-scala (annotation-driven tools), Postgres 18, Flyway migrations.
 
 ## What It Does
 
