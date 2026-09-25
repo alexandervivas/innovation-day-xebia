@@ -1,7 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
-    container_name: core-banking-postgres
+    image: postgres:18.6-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-corebanking}
       POSTGRES_USER: ${POSTGRES_USER:-corebanking}
@@ -9,9 +8,10 @@ services:
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # Postgres major-version bumps need `docker compose down -v` first (old data dir won't start).
+      - postgres_data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-corebanking} -d ${POSTGRES_DB:-corebanking}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-corebanking} -d ${POSTGRES_DB:-corebanking} && psql -U ${POSTGRES_USER:-corebanking} -d ${POSTGRES_DB:-corebanking} -tAc 'SELECT uuidv7()' >/dev/null"]
       interval: 5s
       timeout: 3s
       retries: 10
