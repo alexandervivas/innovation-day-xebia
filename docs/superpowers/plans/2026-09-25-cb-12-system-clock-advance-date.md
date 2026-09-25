@@ -30,6 +30,7 @@
 - **`get_system_date` must reflect a clock that was moved by something other than itself** (e.g. a direct write, or — later — `advance_date`) rather than any cached or seeded value. Pinned in Task 2, "reflects a clock value written after the seed."
 - **A repeated `idempotency_key` must never leak a response recorded under a different `env`** — the same mock Postgres can serve both `mock` and `sandbox` runs depending on `CORE_ENV`. Pinned in Task 3, "a repeated idempotency_key does not replay a response recorded under a different env."
 - **A dry run must never poison a later real call under the same `idempotency_key`** — dry runs are previews and must not become a durable replay baseline. Pinned in Task 3, "a dry_run call does not poison a later real call with the same idempotency_key."
+- **A rejected (`days<=0`) call must never poison a later valid call under the same `idempotency_key`** — an error response is not a completed move and must not become a durable replay baseline either. Pinned in Task 3, "a rejected call does not poison a later valid call with the same idempotency_key."
 
 ---
 
@@ -680,6 +681,20 @@ object AdvanceDateSpec extends ZIOSpecDefault:
         mockJson.fromJson[DecodedEnvelope].map(_.env) == Right("mock"),
         sandboxJson.fromJson[DecodedEnvelope].map(_.env) == Right("sandbox")
       )
+    },
+    test("a rejected call does not poison a later valid call with the same idempotency_key") {
+      val key = UUID.randomUUID().toString
+      val before = rawCurrentDate()
+      val rejectedJson = AdvanceDate.run(xa, CoreEnv.Mock, days = 0, idempotencyKey = Some(key), dryRun = false)
+      val afterRejected = rawCurrentDate()
+      val validJson = AdvanceDate.run(xa, CoreEnv.Mock, days = 5, idempotencyKey = Some(key), dryRun = false)
+      val afterValid = rawCurrentDate()
+      assertTrue(
+        afterRejected == before,
+        afterValid == before.plusDays(5),
+        rejectedJson.fromJson[DecodedErrorEnvelope].isRight,
+        validJson.fromJson[DecodedEnvelope].map(_.data.daysAdvanced) == Right(5)
+      )
     }
   ) @@ sequential @@ timeout(1.minute)
 ```
@@ -754,7 +769,7 @@ object AdvanceDate:
     )
     response
 
-  /** Most recent stored response from a prior real (non-dry-run) call for a matching key and env — a dry run, or a different env, never establishes a replay baseline. */
+  /** Most recent stored response from a prior successful, real (non-dry-run) call for a matching key and env — an error response, a dry run, or a different env, never establishes a replay baseline. */
   private def findReplay(xa: Transactor, env: CoreEnv, key: String): Option[String] =
     transact(xa):
       sql"""
@@ -764,6 +779,7 @@ object AdvanceDate:
           AND env = ${env.label}
           AND request ->> 'idempotencyKey' = $key
           AND request ->> 'dryRun' = 'false'
+          AND response -> 'data' -> 'error' IS NULL
         ORDER BY id DESC
         LIMIT 1
       """.query[String].run().headOption
@@ -820,7 +836,7 @@ Modify `src/main/scala/corebanking/Server.scala`:
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `sbt "testOnly corebanking.tools.AdvanceDateSpec"`
-Expected: PASS (7 tests).
+Expected: PASS (8 tests).
 
 - [ ] **Step 5: Run the full gate and commit**
 
