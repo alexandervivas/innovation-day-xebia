@@ -432,8 +432,7 @@ object ServerProcessSpec extends ZIOSpecDefault:
         yield assertTrue(
           noDatesLine.isDefined,
           withDatesLine.isDefined,
-          // Both calls reach GetTransactions.find and fail there with "no account", not with a
-          // framework-level argument-decoding error — proving Option[LocalDate] round-trips.
+          // Both calls reach the same "unknown account" error — the request is understood either way.
           noDatesLine.get.fromJson[ToolCallResponse].map(_.result.isError) == Right(true),
           withDatesLine.get.fromJson[ToolCallResponse].map(_.result.isError) == Right(true)
         )
