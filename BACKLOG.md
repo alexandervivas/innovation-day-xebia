@@ -18,7 +18,7 @@
 | ID | Story | Acceptance Criteria | Path | Status |
 |---|---|---|---|---|
 | CB-03 | Schema + Flyway migrations | Tables: `clients`, `products`, `accounts`, `loans`, `installments`, `transactions` (append-only, `booking_date`, `value_date`, `reverses_id`, `idempotency_key`), `accruals`, `system_clock`, `accounting_periods`, `audit_log`. No UPDATE/DELETE on `transactions`. `V1__schema.sql` creates all tables. Foreign key constraints enforce referential integrity. | critical-path | done |
-| CB-04 | Seed products | Flyway `V2__seed_products.sql` inserts: Savings product (annual interest, no term). 12-month Loan product (8% annual, annuity schedule, daily accrual). Both use `NUMERIC(18,2)` for money fields. | critical-path | todo |
+| CB-04 | Seed products | Flyway `V2__seed_products.sql` inserts: Savings product (annual interest, no term). 12-month Loan product (8% annual, annuity schedule, daily accrual). Both use `NUMERIC(18,2)` for money fields. | critical-path | in-progress |
 
 ## E2: Read Tools
 
