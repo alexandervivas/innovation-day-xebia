@@ -56,6 +56,7 @@ enum LoanStatus:
 final case class LoanState(
     principalOutstanding: BigDecimal,
     interestAccruedUnpaid: BigDecimal,
+    /** Unpaid late-fee balance, not a running total: a fee a repayment settles drops back out. */
     lateFeesCharged: BigDecimal,
     daysPastDue: Int,
     status: LoanStatus,
