@@ -50,7 +50,7 @@ object GetTransactions:
       WHERE account_id = $accountId
         AND ($startDate IS NULL OR value_date >= $startDate)
         AND ($endDate IS NULL OR value_date <= $endDate)
-      ORDER BY value_date, booking_date
+      ORDER BY value_date, booking_date, id
     """.query[TransactionRow].run().toList.map { r =>
       TransactionData(
         r.id.toString,
