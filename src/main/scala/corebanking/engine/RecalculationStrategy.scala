@@ -18,7 +18,7 @@ enum RecalcError:
   case ValueDateBeforeDisbursement
   case PeriodClosed(periodStart: LocalDate)
 
-/** Replays domain events to a loan position; stays pure so strategies stay swappable. */
+/** Replays domain events to compute a loan's position. */
 trait RecalculationStrategy:
 
   /** The loan position after replaying `events` up to and including `asOf`. */
