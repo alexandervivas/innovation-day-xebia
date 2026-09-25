@@ -31,6 +31,25 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
     "audit_log"
   )
 
+  /**
+   * Business-entity ids are UUID columns (intended to hold UUIDv7 once a write-tools story mints
+   * them), so every literal below is UUIDv7-shaped: version nibble 7 and variant nibble 8. They are
+   * hand-picked fixtures, not real timestamp-derived values.
+   */
+  private val ProductId = "018f3f00-0000-7000-8000-000000000001"
+  private val ClientId = "018f3f00-0000-7000-8000-000000000002"
+  private val AccountId = "018f3f00-0000-7000-8000-000000000003"
+  private val TxId = "018f3f00-0000-7000-8000-000000000004"
+  private val OrphanAccountId = "018f3f00-0000-7000-8000-000000000005"
+  private val TxId2 = "018f3f00-0000-7000-8000-000000000006"
+  private val TxId3 = "018f3f00-0000-7000-8000-000000000007"
+  private val ReversalId1 = "018f3f00-0000-7000-8000-000000000008"
+  private val ReversalId2 = "018f3f00-0000-7000-8000-000000000009"
+  private val SelfReversalId = "018f3f00-0000-7000-8000-00000000000a"
+
+  /** Syntactically valid but never inserted, so any FK pointing at it must be rejected. */
+  private val MissingId = "018f3f00-0000-7000-8000-0000000000ff"
+
   private def withConnection[A](f: Connection => A): Task[A] =
     ZIO.attemptBlocking {
       val conn = DriverManager.getConnection(config.url, config.user, config.password)
@@ -57,19 +76,19 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
     val stmt = conn.createStatement()
     stmt.execute(
       "INSERT INTO products (id, name, kind, annual_rate, term_months) " +
-        "VALUES ('schema-spec-product', 'Test loan', 'loan', 0.08, 12)"
+        s"VALUES ('$ProductId', 'Test loan', 'loan', 0.08, 12)"
     )
     stmt.execute(
       "INSERT INTO clients (id, display_name, opened_on) " +
-        "VALUES ('schema-spec-client', 'Schema Spec Client', CURRENT_DATE)"
+        s"VALUES ('$ClientId', 'Schema Spec Client', CURRENT_DATE)"
     )
     stmt.execute(
       "INSERT INTO accounts (id, client_id, product_id, kind, opened_on) " +
-        "VALUES ('schema-spec-account', 'schema-spec-client', 'schema-spec-product', 'loan', CURRENT_DATE)"
+        s"VALUES ('$AccountId', '$ClientId', '$ProductId', 'loan', CURRENT_DATE)"
     )
     stmt.execute(
       "INSERT INTO transactions (id, account_id, type, amount, booking_date, value_date, idempotency_key) " +
-        "VALUES ('schema-spec-tx', 'schema-spec-account', 'disbursement', 100.00, CURRENT_DATE, CURRENT_DATE, 'schema-spec-idem')"
+        s"VALUES ('$TxId', '$AccountId', 'disbursement', 100.00, CURRENT_DATE, CURRENT_DATE, 'schema-spec-idem')"
     )
 
   /** A plain `RAISE EXCEPTION` in plpgsql, i.e. one of this schema's own guard triggers. */
@@ -120,7 +139,7 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
           val wasRejected = rejects(
             conn,
             "sp_update",
-            "UPDATE transactions SET amount = amount WHERE id = 'schema-spec-tx'",
+            s"UPDATE transactions SET amount = amount WHERE id = '$TxId'",
             RaiseException
           )
           conn.rollback()
@@ -134,7 +153,7 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
           val wasRejected = rejects(
             conn,
             "sp_delete",
-            "DELETE FROM transactions WHERE id = 'schema-spec-tx'",
+            s"DELETE FROM transactions WHERE id = '$TxId'",
             RaiseException
           )
           conn.rollback()
@@ -149,7 +168,7 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
             conn,
             "sp_fk_client",
             "INSERT INTO accounts (id, client_id, product_id, kind, opened_on) " +
-              "VALUES ('schema-spec-orphan', 'does-not-exist', 'schema-spec-product', 'loan', CURRENT_DATE)",
+              s"VALUES ('$OrphanAccountId', '$MissingId', '$ProductId', 'loan', CURRENT_DATE)",
             ForeignKeyViolation
           )
           conn.rollback()
@@ -164,7 +183,7 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
             conn,
             "sp_idem",
             "INSERT INTO transactions (id, account_id, type, amount, booking_date, value_date, idempotency_key) " +
-              "VALUES ('schema-spec-tx-2', 'schema-spec-account', 'repayment', 10.00, CURRENT_DATE, CURRENT_DATE, 'schema-spec-idem')",
+              s"VALUES ('$TxId2', '$AccountId', 'repayment', 10.00, CURRENT_DATE, CURRENT_DATE, 'schema-spec-idem')",
             UniqueViolation
           )
           conn.rollback()
@@ -179,7 +198,7 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
             conn,
             "sp_reverses",
             "INSERT INTO transactions (id, account_id, type, amount, booking_date, value_date, reverses_id, idempotency_key) " +
-              "VALUES ('schema-spec-tx-3', 'schema-spec-account', 'reversal', 100.00, CURRENT_DATE, CURRENT_DATE, 'does-not-exist', 'schema-spec-idem-2')",
+              s"VALUES ('$TxId3', '$AccountId', 'reversal', 100.00, CURRENT_DATE, CURRENT_DATE, '$MissingId', 'schema-spec-idem-2')",
             ForeignKeyViolation
           )
           conn.rollback()
@@ -221,13 +240,13 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
             .createStatement()
             .execute(
               "INSERT INTO transactions (id, account_id, type, amount, booking_date, value_date, reverses_id, idempotency_key) " +
-                "VALUES ('schema-spec-rev-1', 'schema-spec-account', 'reversal', 100.00, CURRENT_DATE, CURRENT_DATE, 'schema-spec-tx', 'schema-spec-idem-rev-1')"
+                s"VALUES ('$ReversalId1', '$AccountId', 'reversal', 100.00, CURRENT_DATE, CURRENT_DATE, '$TxId', 'schema-spec-idem-rev-1')"
             )
           val wasRejected = rejects(
             conn,
             "sp_double_reversal",
             "INSERT INTO transactions (id, account_id, type, amount, booking_date, value_date, reverses_id, idempotency_key) " +
-              "VALUES ('schema-spec-rev-2', 'schema-spec-account', 'reversal', 100.00, CURRENT_DATE, CURRENT_DATE, 'schema-spec-tx', 'schema-spec-idem-rev-2')",
+              s"VALUES ('$ReversalId2', '$AccountId', 'reversal', 100.00, CURRENT_DATE, CURRENT_DATE, '$TxId', 'schema-spec-idem-rev-2')",
             UniqueViolation
           )
           conn.rollback()
@@ -238,13 +257,14 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
         withConnection { conn =>
           conn.setAutoCommit(false)
           seedLoanAccount(conn)
-          val wasRejected = rejects(
-            conn,
-            "sp_self_reversal",
-            "INSERT INTO transactions (id, account_id, type, amount, booking_date, value_date, reverses_id, idempotency_key) " +
-              "VALUES ('schema-spec-self', 'schema-spec-account', 'reversal', 100.00, CURRENT_DATE, CURRENT_DATE, 'schema-spec-self', 'schema-spec-idem-self')",
-            CheckViolation
-          )
+          val wasRejected =
+            rejects(
+              conn,
+              "sp_self_reversal",
+              "INSERT INTO transactions (id, account_id, type, amount, booking_date, value_date, reverses_id, idempotency_key) " +
+                s"VALUES ('$SelfReversalId', '$AccountId', 'reversal', 100.00, CURRENT_DATE, CURRENT_DATE, '$SelfReversalId', 'schema-spec-idem-self')",
+              CheckViolation
+            )
           conn.rollback()
           wasRejected
         }.map(wasRejected => assertTrue(wasRejected))
@@ -262,11 +282,12 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
           wasRejected
         }.map(wasRejected => assertTrue(wasRejected))
       },
-      test("accruals.amount keeps full precision: an 8-decimal accrual round-trips exactly") {
-        // 5000.00 * 0.08 / 365 = one day's actual/365 interest on the demo loan. At NUMERIC(18,2)
-        // this would be stored as 1.10, drifting by real cents once summed over a month;
-        // RecalculationSpec requires it unrounded until allocated or reported.
-        val dailyAccrual = "1.09589041"
+      test("accruals.amount keeps full precision: a 24-decimal accrual round-trips exactly") {
+        // 5000.00 * 0.08 / 365 = one day's actual/365 interest on the demo loan, a repeating
+        // decimal (period "09589041"). NUMERIC(18,2) would store 1.10 and NUMERIC(18,8) would
+        // truncate to 1.09589041; RecalculationSpec requires it unrounded until allocated or
+        // reported, which only unconstrained NUMERIC guarantees.
+        val dailyAccrual = "1.095890410958904109589041"
         withConnection { conn =>
           conn.setAutoCommit(false)
           seedLoanAccount(conn)
@@ -274,12 +295,12 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
             .createStatement()
             .execute(
               "INSERT INTO accruals (account_id, accrual_date, amount) " +
-                s"VALUES ('schema-spec-account', CURRENT_DATE, $dailyAccrual)"
+                s"VALUES ('$AccountId', CURRENT_DATE, $dailyAccrual)"
             )
           val rs = conn
             .createStatement()
             .executeQuery(
-              "SELECT amount FROM accruals WHERE account_id = 'schema-spec-account'"
+              s"SELECT amount FROM accruals WHERE account_id = '$AccountId'"
             )
           rs.next()
           val stored = rs.getBigDecimal("amount").toPlainString

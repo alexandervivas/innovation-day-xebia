@@ -8,12 +8,22 @@
 -- transactions is append-only (CLAUDE.md rule 2): corrections are reversal (reverses_id) plus
 -- repost, never UPDATE/DELETE. That is enforced below with triggers, not just app discipline.
 --
+-- Business-entity ids (clients, products, accounts, transactions, and every FK to them) are UUID.
+-- They are intended to hold UUIDv7 values minted in application code by a future write-tools story:
+-- the schema neither generates nor enforces the v7 shape, and Postgres's UUID type only validates
+-- RFC 4122 syntax. Postgres 16 has no native uuidv7(), so there is deliberately no DEFAULT here.
+-- system_clock.id (a singleton marker), audit_log.id / accruals.id (BIGSERIAL surrogates),
+-- accounting_periods.start_date (a natural key) and transactions.idempotency_key (an opaque
+-- caller-supplied string) are not entity ids and keep their own types.
+--
 -- Money a client can see or be charged is NUMERIC(18,2), i.e. cents. accruals.amount is the one
--- deliberate exception, at NUMERIC(18,8): daily actual/365 interest is an internal running figure,
--- and docs/handoff/RecalculationSpec.scala requires it be "kept at full precision and rounded
--- HALF_UP to cents when allocated or reported". Storing it at 2dp would round every single day and
--- let a month of rows drift by real cents from the exact figure replay has to reproduce, so it is
--- stored unrounded; rounding happens when the engine allocates or reports it, never on write.
+-- deliberate exception, at unconstrained NUMERIC: daily actual/365 interest is an internal running
+-- figure, and docs/handoff/RecalculationSpec.scala requires it be "kept at full precision and
+-- rounded HALF_UP to cents when allocated or reported". Any fixed scale rounds on write -- 5000 *
+-- 0.08 / 365 = 1.0958904109589041... repeats, so even 8dp truncates -- and a month of such rows
+-- would drift by real cents from the exact figure replay has to reproduce. Unconstrained NUMERIC is
+-- exact arbitrary precision, so nothing is lost on write; rounding happens when the engine
+-- allocates or reports, never on write.
 --
 -- Known open questions, deliberately left unanswered here because each needs an engine or
 -- write-tool spec that does not exist yet. These are NOT TODOs for CB-03:
@@ -24,13 +34,13 @@
 --     define.
 
 CREATE TABLE clients (
-  id           TEXT PRIMARY KEY,
+  id           UUID PRIMARY KEY,
   display_name TEXT NOT NULL,
   opened_on    DATE NOT NULL
 );
 
 CREATE TABLE products (
-  id            TEXT PRIMARY KEY,
+  id            UUID PRIMARY KEY,
   name          TEXT NOT NULL,
   kind          TEXT NOT NULL CHECK (kind IN ('savings', 'loan')),
   annual_rate   NUMERIC(6,4) NOT NULL,
@@ -39,15 +49,15 @@ CREATE TABLE products (
 );
 
 CREATE TABLE accounts (
-  id         TEXT PRIMARY KEY,
-  client_id  TEXT NOT NULL REFERENCES clients(id),
-  product_id TEXT NOT NULL REFERENCES products(id),
+  id         UUID PRIMARY KEY,
+  client_id  UUID NOT NULL REFERENCES clients(id),
+  product_id UUID NOT NULL REFERENCES products(id),
   kind       TEXT NOT NULL CHECK (kind IN ('savings', 'loan')),
   opened_on  DATE NOT NULL
 );
 
 CREATE TABLE loans (
-  account_id         TEXT PRIMARY KEY REFERENCES accounts(id),
+  account_id         UUID PRIMARY KEY REFERENCES accounts(id),
   principal          NUMERIC(18,2) NOT NULL,
   annual_rate        NUMERIC(6,4) NOT NULL,
   term_months        INT NOT NULL,
@@ -58,7 +68,7 @@ CREATE TABLE loans (
 );
 
 CREATE TABLE installments (
-  account_id TEXT NOT NULL REFERENCES accounts(id),
+  account_id UUID NOT NULL REFERENCES accounts(id),
   seq        INT NOT NULL,
   due_date   DATE NOT NULL,
   amount_due NUMERIC(18,2) NOT NULL,
@@ -66,13 +76,13 @@ CREATE TABLE installments (
 );
 
 CREATE TABLE transactions (
-  id              TEXT PRIMARY KEY,
-  account_id      TEXT NOT NULL REFERENCES accounts(id),
+  id              UUID PRIMARY KEY,
+  account_id      UUID NOT NULL REFERENCES accounts(id),
   type            TEXT NOT NULL,
   amount          NUMERIC(18,2) NOT NULL,
   booking_date    DATE NOT NULL,
   value_date      DATE NOT NULL,
-  reverses_id     TEXT REFERENCES transactions(id),
+  reverses_id     UUID REFERENCES transactions(id),
   idempotency_key TEXT NOT NULL UNIQUE
 );
 
@@ -112,10 +122,11 @@ ALTER TABLE transactions ENABLE ALWAYS TRIGGER transactions_no_truncate;
 
 CREATE TABLE accruals (
   id           BIGSERIAL PRIMARY KEY,
-  account_id   TEXT NOT NULL REFERENCES accounts(id),
+  account_id   UUID NOT NULL REFERENCES accounts(id),
   accrual_date DATE NOT NULL,
   -- Full-precision internal figure, not a cent amount; see the precision note in the header.
-  amount       NUMERIC(18,8) NOT NULL,
+  -- Unconstrained NUMERIC on purpose: no precision or scale, so nothing is rounded on write.
+  amount       NUMERIC NOT NULL,
   UNIQUE (account_id, accrual_date)
 );
 
