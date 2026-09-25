@@ -15,8 +15,8 @@ set -euo pipefail
 #     env- or YAML-style (key=value or key: value)
 #
 # A placeholder allowlist is applied after matching so known-safe placeholders
-# (change-me, <angle-bracket-placeholder>, example.com, your-*-here,
-# ${VAR} / ${VAR:-default}) never get reported as findings.
+# (change-me, other-pass, env.getOrElse(...) reads, <angle-bracket-placeholder>,
+# example.com, your-*-here, ${VAR} / ${VAR:-default}) never get reported as findings.
 #
 # Usage:
 #   scripts/secret-scan.sh --self-test    # Verify every pattern class fires, and placeholders don't
@@ -35,11 +35,12 @@ PATTERN+='|bearer[[:space:]]+[A-Za-z0-9._-]{20,}'
 PATTERN+='|://[^/:@[:space:]]+:[^@[:space:]]+@'
 PATTERN+='|(password|passwd|pwd|secret|token|api_key|apikey)[A-Za-z0-9_]*[[:space:]]*[=:][[:space:]]*["'"'"']?[^"'"'"'[:space:]]{8,}'
 
-ALLOWLIST='(change-me|changeme|<[A-Za-z_-]+>|example\.com|your-[a-z-]+-here|\$\{[A-Za-z_]+(:-[^}]*)?\})'
+ALLOWLIST='(change-me|changeme|other-pass|env\.getOrElse\(|<[A-Za-z_-]+>|example\.com|your-[a-z-]+-here|\$\{[A-Za-z_]+(:-[^}]*)?\})'
 
 # Exclusions shared by index and head scans: the scanner script itself (it contains the
-# patterns as literal text) and .claude/ (agent prompts legitimately mention "token", etc).
-EXCLUDE_PATHSPECS=(':!scripts/secret-scan.sh' ':!.claude/**')
+# patterns as literal text), .claude/ (agent prompts legitimately mention "token", etc), and
+# docs/superpowers/plans/ (process docs that quote code signatures/tests, never real credentials).
+EXCLUDE_PATHSPECS=(':!scripts/secret-scan.sh' ':!.claude/**' ':!docs/superpowers/plans/**')
 
 # Removes allowlisted (known-safe placeholder) lines from stdin.
 filter_allowlist() {
@@ -93,6 +94,8 @@ if [[ "${1:-}" == "--self-test" ]]; then
         'POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}'
         "DATABASE_URL=jdbc:postgresql://localhost:5432/corebanking"
         'token: ${GITHUB_TOKEN}'
+        'password = env.getOrElse("POSTGRES_PASSWORD", defaultPassword)'
+        'password = "other-pass"'
     )
 
     for sample in "${NEGATIVE_SAMPLES[@]}"; do
