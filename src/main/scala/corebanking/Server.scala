@@ -20,6 +20,7 @@ import corebanking.tools.{
   GetAuditLog,
   GetAuditLogRequest,
   GetClient,
+  GetLoanSchedule,
   GetSystemDate,
   GetTransactions,
   ListAccounts,
@@ -199,3 +200,11 @@ object Server extends McpServerApp[Stdio, Server.type]:
       endDate: Option[LocalDate] = None
   ): String =
     connect(transactor)(GetTransactions.response(coreEnv, accountId, startDate, endDate))
+
+  @Tool(
+    name = Some("get_loan_schedule"),
+    description = Some("Shows a loan's installment schedule with interest/principal breakdown"),
+    readOnlyHint = Some(true)
+  )
+  def getLoanSchedule(loanId: UUID): String =
+    connect(transactor)(GetLoanSchedule.response(coreEnv, loanId))
