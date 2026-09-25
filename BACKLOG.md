@@ -30,7 +30,7 @@
 
 | ID | Story | Acceptance Criteria | Path | Status |
 |---|---|---|---|---|
-| CB-06 | Write tools: create_client, open_account | `create_client(name, email?)` inserts client + audit log entry. `open_account(client_id, product_id, currency)` creates account + initial balance transaction with `booking_date` = `value_date` = system clock time. Both tools accept `idempotency_key`, `dry_run`. | critical-path | in-progress |
+| CB-06 | Write tools: create_client, open_account | `create_client(name, email?)` inserts client + audit log entry. `open_account(client_id, product_id, currency)` creates account + initial balance transaction with `booking_date` = `value_date` = system clock time. Both tools accept `idempotency_key`, `dry_run`. | critical-path | in-review |
 | CB-07 | Write tool: disburse_loan | `disburse_loan(account_id, principal, annual_rate, term_months)` creates loan, generates installment schedule, posts disbursement transaction. Installments scheduled using system date. Accepts `idempotency_key`, `dry_run`. | critical-path | todo |
 | CB-08 | Write tool: make_repayment | `make_repayment(account_id, amount)` applies repayment with allocation order: fees (if any) → interest (accrued) → principal. Writes reversal if overpayment + returns amount applied + excess. Accepts `idempotency_key`, `dry_run`. | critical-path | todo |
 | CB-09 | Idempotency keys | All write tools enforce: repeated `idempotency_key` returns exact same result (same transaction IDs, same state, no duplicates). Idempotency stored in `transactions.idempotency_key` column. | critical-path | todo |
