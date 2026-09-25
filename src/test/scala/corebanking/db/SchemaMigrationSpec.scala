@@ -106,6 +106,9 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
   /** invalid_text_representation, i.e. a string Postgres cannot parse as the column's type. */
   private val InvalidTextRepresentation = "22P02"
 
+  /** not_null_violation. */
+  private val NotNullViolation = "23502"
+
   /**
    * Runs `sql` under a savepoint and reports whether it was rejected for the *expected* reason,
    * rolling back to the savepoint either way so the connection stays usable for the next assertion.
@@ -351,6 +354,37 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
         }.map {
           case (infinityRejected, negativeInfinityRejected, nanRejected) =>
             assertTrue(infinityRejected, negativeInfinityRejected, nanRejected)
+        }
+      },
+      test("audit_log.dry_run_flag defaults to false and rejects NULL") {
+        withConnection { conn =>
+          conn.setAutoCommit(false)
+          conn
+            .createStatement()
+            .execute(
+              "INSERT INTO audit_log (tool_name, env, request, response) " +
+                "VALUES ('schema-spec-audit-default', 'mock', '{}'::jsonb, '{}'::jsonb)"
+            )
+          val rs = conn
+            .createStatement()
+            .executeQuery(
+              "SELECT dry_run_flag FROM audit_log WHERE tool_name = 'schema-spec-audit-default'"
+            )
+          rs.next()
+          val defaultedToFalse = !rs.getBoolean("dry_run_flag")
+          rs.close()
+          val nullRejected = rejects(
+            conn,
+            "sp_audit_dry_run_null",
+            "INSERT INTO audit_log (tool_name, env, request, response, dry_run_flag) " +
+              "VALUES ('schema-spec-audit-null', 'mock', '{}'::jsonb, '{}'::jsonb, NULL)",
+            NotNullViolation
+          )
+          conn.rollback()
+          (defaultedToFalse, nullRejected)
+        }.map {
+          case (defaultedToFalse, nullRejected) =>
+            assertTrue(defaultedToFalse, nullRejected)
         }
       }
     ) @@ sequential @@ timeout(1.minute)
