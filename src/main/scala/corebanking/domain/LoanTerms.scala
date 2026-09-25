@@ -32,6 +32,22 @@ object UserEvent:
     def valueDate: LocalDate = event match
       case Disbursement(_, _, valueDate, _) => valueDate
       case Repayment(_, _, valueDate, _) => valueDate
+    def bookingDate: LocalDate = event match
+      case Disbursement(_, _, _, bookingDate) => bookingDate
+      case Repayment(_, _, _, bookingDate) => bookingDate
+
+    /**
+     * Rebuilds the event with some fields replaced, keeping its case. An enum case application is
+     * typed as the enum itself, so the generated case-class `copy` is out of reach here.
+     */
+    def copy(
+        id: String = event.id,
+        amount: BigDecimal = event.amount,
+        valueDate: LocalDate = event.valueDate,
+        bookingDate: LocalDate = event.bookingDate
+    ): UserEvent = event match
+      case _: Disbursement => Disbursement(id, amount, valueDate, bookingDate)
+      case _: Repayment => Repayment(id, amount, valueDate, bookingDate)
 
 /** How one repayment was split, in the fixed fees -> interest -> principal order. */
 final case class Allocation(fees: BigDecimal, interest: BigDecimal, principal: BigDecimal)
