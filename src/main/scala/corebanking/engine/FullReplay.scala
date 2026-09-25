@@ -5,10 +5,7 @@ import corebanking.domain.*
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
-/**
- * Recalculates a loan by replaying every user event from disbursement, day by day. Simple and
- * always exact: no snapshot can go stale, because nothing is cached between runs.
- */
+/** Recalculates a loan's position by replaying every event from disbursement, day by day. */
 object FullReplay extends RecalculationStrategy:
 
   private case class Installment(index: Int, dueDate: LocalDate)
@@ -58,7 +55,6 @@ object FullReplay extends RecalculationStrategy:
           feesCharged -= feePay
           remaining -= feePay
 
-          // Zero out the UNROUNDED balance so no fractional cent survives to drift later accrual.
           val interestPayExact = interestUnpaid.min(remaining)
           interestUnpaid -= interestPayExact
           val interestPayRounded = interestPayExact.setScale(2, BigDecimal.RoundingMode.HALF_UP)
@@ -117,17 +113,13 @@ object FullReplay extends RecalculationStrategy:
         case Some(period) => Left(RecalcError.PeriodClosed(period))
         case None =>
           val beforeReplay = replay(terms, events, systemDate)
-          // Stable sort: newTx is appended last, so on a value-date tie it sorts after the
-          // events already on that day.
+          // On a value-date tie, the backdated transaction is applied after the existing ones.
           val newEvents = (events :+ newTx).sortBy(_.valueDate.toEpochDay)
           val after = replay(terms, newEvents, systemDate).state
 
           val affectedUserEvents = events.filter(!_.valueDate.isBefore(newTx.valueDate))
 
-          // The correction window runs from the backdated value date to the newest transaction the
-          // chain reposts. Only the synthetic late fees inside it are reversed explicitly: a fee
-          // charged after the last repost is downstream of the chain, so the recomputation decides
-          // on its own whether it still stands.
+          // Only reverses late fees charged between the backdated value date and the last reposted transaction.
           val windowEnd = affectedUserEvents.map(_.valueDate).maxOption
           val affectedFees = beforeReplay.lateFees.filter { (_, chargedOn) =>
             !chargedOn.isBefore(newTx.valueDate) && windowEnd.exists(!chargedOn.isAfter(_))
