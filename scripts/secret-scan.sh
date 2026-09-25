@@ -15,8 +15,12 @@ set -euo pipefail
 #     env- or YAML-style (key=value or key: value)
 #
 # A placeholder allowlist is applied after matching so known-safe placeholders
-# (change-me, other-pass, env.getOrElse(...) reads, <angle-bracket-placeholder>,
-# example.com, your-*-here, ${VAR} / ${VAR:-default}) never get reported as findings.
+# (change-me, other-pass, env.getOrElse(key, <bare-identifier>) reads, a Scala
+# `: String` type annotation, <angle-bracket-placeholder>, example.com, your-*-here,
+# ${VAR} / ${VAR:-default}) never get reported as findings. The env.getOrElse allowlist entry
+# requires the default argument to be a bare identifier (not a quoted literal), so a hardcoded
+# secret passed as that default — e.g. env.getOrElse("POSTGRES_PASSWORD", "a-real-password") —
+# is still reported.
 #
 # Usage:
 #   scripts/secret-scan.sh --self-test    # Verify every pattern class fires, and placeholders don't
@@ -35,12 +39,11 @@ PATTERN+='|bearer[[:space:]]+[A-Za-z0-9._-]{20,}'
 PATTERN+='|://[^/:@[:space:]]+:[^@[:space:]]+@'
 PATTERN+='|(password|passwd|pwd|secret|token|api_key|apikey)[A-Za-z0-9_]*[[:space:]]*[=:][[:space:]]*["'"'"']?[^"'"'"'[:space:]]{8,}'
 
-ALLOWLIST='(change-me|changeme|other-pass|env\.getOrElse\(|<[A-Za-z_-]+>|example\.com|your-[a-z-]+-here|\$\{[A-Za-z_]+(:-[^}]*)?\})'
+ALLOWLIST='(change-me|changeme|other-pass|env\.getOrElse\([^)]*,[[:space:]]*[A-Za-z_][A-Za-z0-9_]*\)|:[[:space:]]*String[,)]|<[A-Za-z_-]+>|example\.com|your-[a-z-]+-here|\$\{[A-Za-z_]+(:-[^}]*)?\})'
 
 # Exclusions shared by index and head scans: the scanner script itself (it contains the
-# patterns as literal text), .claude/ (agent prompts legitimately mention "token", etc), and
-# docs/superpowers/plans/ (process docs that quote code signatures/tests, never real credentials).
-EXCLUDE_PATHSPECS=(':!scripts/secret-scan.sh' ':!.claude/**' ':!docs/superpowers/plans/**')
+# patterns as literal text) and .claude/ (agent prompts legitimately mention "token", etc).
+EXCLUDE_PATHSPECS=(':!scripts/secret-scan.sh' ':!.claude/**')
 
 # Removes allowlisted (known-safe placeholder) lines from stdin.
 filter_allowlist() {
@@ -105,6 +108,23 @@ if [[ "${1:-}" == "--self-test" ]]; then
         else
             echo "self-test FAILED: negative unexpectedly fired: $sample" >&2
             FAILURES+=("negative: $sample")
+        fi
+    done
+
+    # A hardcoded secret disguised as an env.getOrElse(...) default must still be reported: the
+    # env.getOrElse allowlist entry only exempts a *bare-identifier* default, never a quoted
+    # literal, so this must survive both PATTERN and the allowlist filter.
+    declare -a ALLOWLIST_SURVIVES_SAMPLES=(
+        'password = env.getOrElse("POSTGRES_PASSWORD", "hunter2SuperSecret")'
+    )
+
+    for sample in "${ALLOWLIST_SURVIVES_SAMPLES[@]}"; do
+        SURVIVING=$(echo "$sample" | grep -iE "$PATTERN" 2>/dev/null | filter_allowlist || true)
+        if [[ -n "$SURVIVING" ]]; then
+            echo "self-test: disguised secret '$sample' still fires (OK)"
+        else
+            echo "self-test FAILED: disguised secret was allowlisted away: $sample" >&2
+            FAILURES+=("allowlist-survives: $sample")
         fi
     done
 
