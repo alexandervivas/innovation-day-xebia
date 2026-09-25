@@ -41,7 +41,7 @@
 
 | ID | Story | Acceptance Criteria | Path | Status |
 |---|---|---|---|---|
-| CB-12 | system_clock + advance_date | `system_clock` table holds single row: `current_date`. `advance_date(days)` increments it. All subsequent reads use this clock, not server clock. `get_system_date()` read tool. | critical-path | in-review |
+| CB-12 | system_clock + advance_date | `system_clock` table holds single row: `current_date`. `advance_date(days)` increments it. All subsequent reads use this clock, not server clock. `get_system_date()` read tool. | critical-path | done |
 | CB-13 | End-of-day job: accrual, arrears, late fees | `run_eod()` tool: (1) accrues interest for all active loans at daily rate (actual/365) into `accruals` table; (2) checks unpaid installments: if past due date + grace period, flag as arrears, post fixed late fee transaction; (3) returns summary of state changes. Advance clock by 45 days and verify unpaid loan is in arrears with correct accumulated fees. | critical-path | todo |
 | CB-14 | close_accounting_period | `close_accounting_period(end_date)` marks period as closed in `accounting_periods` table. Prevents new transactions with `value_date` in closed period (return error). | critical-path | todo |
 
