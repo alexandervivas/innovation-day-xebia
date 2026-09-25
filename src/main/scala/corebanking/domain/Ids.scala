@@ -2,6 +2,10 @@ package corebanking.domain
 
 import java.util.UUID
 
+/**
+ * Entity ids carry no timing meaning — value_date, booking_date, and system_clock are the only
+ * source of when something happened.
+ */
 opaque type ClientId = UUID
 object ClientId:
   def apply(value: UUID): ClientId = value

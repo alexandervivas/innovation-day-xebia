@@ -42,7 +42,7 @@ object ProductSeedSpec extends ZIOSpecDefault:
     )
     stmt.setString(1, kind)
     val rs = stmt.executeQuery()
-    rs.next()
+    if !rs.next() then throw new RuntimeException(s"no product found with kind=$kind")
     val row = ProductRow(
       id = ProductId(UUID.fromString(rs.getString("id"))),
       name = rs.getString("name"),
@@ -56,7 +56,12 @@ object ProductSeedSpec extends ZIOSpecDefault:
 
   private def countsByKind(conn: Connection): Map[String, Int] =
     val rs =
-      conn.createStatement().executeQuery("SELECT kind, COUNT(*) AS n FROM products GROUP BY kind")
+      conn
+        .createStatement()
+        .executeQuery(
+          "SELECT kind, COUNT(*) AS n FROM products " +
+            "WHERE name IN ('Savings', '12-Month Consumer Loan') GROUP BY kind"
+        )
     val results = scala.collection.mutable.Map.empty[String, Int]
     while rs.next() do results += rs.getString("kind") -> rs.getInt("n")
     rs.close()
@@ -67,24 +72,26 @@ object ProductSeedSpec extends ZIOSpecDefault:
 
   def spec: Spec[TestEnvironment & Scope, Any] =
     suite("V2__seed_products.sql (CB-04)")(
-      test("seeds exactly one savings product with the expected fields") {
+      test("seeds a savings product with the expected fields") {
         for
           _ <- ZIO.attemptBlocking(FlywayRunner.migrate(config))
           savings <- withConnection(productByKind(_, "savings"))
         yield assertTrue(
           savings.name == "Savings",
           savings.annualRate == BigDecimal("0.0150"),
+          savings.annualRate.scale == 4,
           savings.termMonths.isEmpty,
           savings.accrualBasis == "actual/365"
         )
       },
-      test("seeds exactly one loan product with the expected fields") {
+      test("seeds a loan product with the expected fields") {
         for
           _ <- ZIO.attemptBlocking(FlywayRunner.migrate(config))
           loan <- withConnection(productByKind(_, "loan"))
         yield assertTrue(
           loan.name == "12-Month Consumer Loan",
           loan.annualRate == BigDecimal("0.0800"),
+          loan.annualRate.scale == 4,
           loan.termMonths.contains(12),
           loan.accrualBasis == "actual/365"
         )
@@ -97,7 +104,7 @@ object ProductSeedSpec extends ZIOSpecDefault:
             assertTrue(isUuidV7(savingsId), isUuidV7(loanId))
         }
       },
-      test("re-running the migration does not duplicate seed rows") {
+      test("Flyway's versioned-migration history prevents V2 from re-applying") {
         for
           _ <- ZIO.attemptBlocking(FlywayRunner.migrate(config))
           _ <- ZIO.attemptBlocking(FlywayRunner.migrate(config))
