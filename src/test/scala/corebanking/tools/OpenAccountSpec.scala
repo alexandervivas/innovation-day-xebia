@@ -10,7 +10,7 @@ import zio.test.TestAspect.*
 import com.augustnagro.magnum.{DbCodec, sql, transact}
 
 import corebanking.config.{CoreEnv, DbConfig}
-import corebanking.db.{Db, FlywayRunner}
+import corebanking.db.{Db, FlywayRunner, SystemClockRow, Transaction}
 
 object OpenAccountSpec extends ZIOSpecDefault:
 
@@ -77,6 +77,30 @@ object OpenAccountSpec extends ZIOSpecDefault:
         WHERE a.client_id = $clientId
       """.query[CountRow].run().head.n
 
+  private def transactionById(id: UUID): Option[Transaction] =
+    transact(xa):
+      sql"""
+        SELECT id, account_id, type, amount, booking_date, value_date, reverses_id, idempotency_key
+        FROM transactions WHERE id = $id
+      """.query[Transaction].run().headOption
+
+  private def systemDate(): String =
+    transact(xa):
+      sql"SELECT current_date_value FROM system_clock WHERE id = true"
+        .query[SystemClockRow]
+        .run()
+        .head
+        .currentDateValue
+        .toString
+
+  private def auditCount(marker: String): Long =
+    transact(xa):
+      sql"SELECT COUNT(*) AS n FROM audit_log WHERE request::text LIKE ${"%" + marker + "%"}"
+        .query[CountRow]
+        .run()
+        .head
+        .n
+
   private def seedClientAndProduct(): (UUID, UUID) =
     transact(xa):
       val clientId = corebanking.db.Ids.next()
@@ -107,6 +131,8 @@ object OpenAccountSpec extends ZIOSpecDefault:
               dryRun = false
             )
           )
+          val posted = transactionById(UUID.fromString(decoded.data.openingTransactionId))
+            .getOrElse(throw new RuntimeException("no opening transaction was posted"))
           assertTrue(
             decoded.env == "mock",
             decoded.data.currency == "COP",
@@ -114,8 +140,12 @@ object OpenAccountSpec extends ZIOSpecDefault:
             decoded.data.clientId == clientId.toString,
             decoded.data.productId == productId.toString,
             decoded.data.dryRun == false,
+            decoded.data.openedOn == systemDate(),
             accountCount(clientId) == 1L,
-            txCount(decoded.data.openingTransactionId) == 1L
+            posted.`type` == "account_opening",
+            posted.accountId == UUID.fromString(decoded.data.id),
+            posted.amount == BigDecimal("1250.55"),
+            posted.bookingDate == posted.valueDate
           )
       },
       test("initial_deposit defaults to 0.00 when omitted") {
@@ -280,6 +310,63 @@ object OpenAccountSpec extends ZIOSpecDefault:
           decoded.dryRun == true,
           txCount(key) == 0L,
           accountCount(clientId) == 0L
+        )
+      },
+      test("every call is audited exactly once, including dry runs and rejections") {
+        val (clientId, productId) = seedClientAndProduct()
+        val opened = freshKey()
+        val previewed = freshKey()
+        val rejected = freshKey()
+
+        val openedBefore = auditCount(opened)
+        OpenAccount.run(
+          xa,
+          CoreEnv.Mock,
+          clientId.toString,
+          productId.toString,
+          "COP",
+          Some("20.00"),
+          Some(opened),
+          dryRun = false
+        )
+        val openedAfter = auditCount(opened)
+
+        val previewedBefore = auditCount(previewed)
+        OpenAccount.run(
+          xa,
+          CoreEnv.Mock,
+          clientId.toString,
+          productId.toString,
+          "COP",
+          Some("20.00"),
+          Some(previewed),
+          dryRun = true
+        )
+        val previewedAfter = auditCount(previewed)
+
+        val rejectedBefore = auditCount(rejected)
+        val error = decodeError(
+          OpenAccount.run(
+            xa,
+            CoreEnv.Mock,
+            UUID.randomUUID().toString,
+            productId.toString,
+            "COP",
+            None,
+            Some(rejected),
+            dryRun = false
+          )
+        )
+        val rejectedAfter = auditCount(rejected)
+
+        assertTrue(
+          openedBefore == 0L,
+          openedAfter == 1L,
+          previewedBefore == 0L,
+          previewedAfter == 1L,
+          rejectedBefore == 0L,
+          rejectedAfter == 1L,
+          error.error == "CLIENT_NOT_FOUND"
         )
       }
     ) @@ sequential @@ timeout(1.minute)
