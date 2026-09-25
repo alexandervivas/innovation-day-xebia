@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Audit Log — Core Banking MCP</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0;font-family:'IBM Plex Sans',system-ui,sans-serif;background:#F3F1EC;color:#17191E}
+a{color:#1F4FB8}a:hover{color:#163B8C}
+</style>
+</helmet>
+<div style="width: 1440px; height: 960px; display: flex; background: #F3F1EC; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #17191E; overflow: hidden">
+
+<nav aria-label="Primary" style="width: 240px; height: 960px; box-sizing: border-box; background: #17191E; color: #E9E6DF; padding: 28px 16px; display: flex; flex-direction: column; gap: 32px; flex-shrink: 0">
+<div style="display: flex; flex-direction: column; gap: 4px; padding: 0 8px">
+<div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; color: #A3A6AD">XEBIA INNOVATION DAY</div>
+<div style="font-size: 20px; font-weight: 600">Core Banking MCP</div>
+<div style="font-size: 13px; color: #A3A6AD">QA Console</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; font-size: 14px; color: #C9C6BF"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h18"></path><circle cx="7" cy="12" r="2"></circle><circle cx="17" cy="12" r="2"></circle><path d="M7 5v5M17 14v5"></path></svg>Timeline</a>
+<a href="Diff.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; font-size: 14px; color: #C9C6BF"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3v13M5 13l3 3 3-3M16 21V8M13 11l3-3 3 3"></path></svg>Recalculation Diff</a>
+<a href="Scenarios.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; font-size: 14px; color: #C9C6BF"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"></path><circle cx="9" cy="6" r="2"></circle><circle cx="15" cy="12" r="2"></circle><circle cx="7" cy="18" r="2"></circle></svg>Scenario Builder</a>
+<a href="Audit.dc.html" aria-current="page" style="display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; font-size: 14px; background: #2A2D35; color: #FFFFFF"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4h6l1 2h3v14H5V6h3z"></path><path d="M9 11h6M9 15h4"></path></svg>Audit Log<span style="width: 6px; height: 6px; border-radius: 3px; margin-left: auto; background: {{accent}}"></span></a>
+</div>
+<div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px; padding: 16px; background: #22252C; border-radius: 10px; font-size: 12px">
+<div style="display: flex; align-items: center; justify-content: space-between"><span style="color: #A3A6AD">Environment</span><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; padding: 3px 8px; border-radius: 6px; background: #FDE9C4; color: #7A4205">MOCK</span></div>
+<div style="display: flex; align-items: center; justify-content: space-between"><span style="color: #A3A6AD">System date</span><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; color: #FFFFFF">2026-11-14</span></div>
+<div style="display: flex; align-items: center; justify-content: space-between"><span style="color: #A3A6AD">Postgres</span><span style="color: #9FD8B5">connected</span></div>
+</div>
+</nav>
+
+<main style="flex-grow: 1; box-sizing: border-box; padding: 28px 32px; display: flex; flex-direction: column; gap: 20px; min-width: 0">
+
+<header style="display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 56px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em">Audit Log</h1>
+<p style="margin: 0; font-size: 14px; color: #5B5F68">Every MCP tool call, with arguments, safety flags and result</p>
+</div>
+<div style="display: flex; align-items: center; gap: 12px">
+<div style="display: flex; align-items: center; gap: 8px; padding: 12px 14px; background: #FDE9C4; color: #7A4205; border-radius: 8px; font-size: 13px"><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; letter-spacing: 0.06em">ENV: MOCK</span><span>Production writes blocked</span></div>
+<div style="padding: 12px 14px; background: #FFFFFF; border: 1px solid #DDD8CE; border-radius: 8px; font-size: 13px"><span style="color: #5B5F68">System date </span><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600">2026-11-14</span></div>
+</div>
+</header>
+
+<section aria-label="Filters" style="display: flex; align-items: flex-end; gap: 12px; padding: 14px 20px; background: #FFFFFF; border: 1px solid #DDD8CE; border-radius: 12px; font-size: 13px">
+<div style="display: flex; flex-direction: column; gap: 6px; flex-grow: 1"><label for="audit-search" style="font-weight: 500">Search</label><input id="audit-search" type="search" placeholder="Tool, transaction or idempotency key" style="height: 44px; box-sizing: border-box; padding: 0 12px; border: 1px solid #C9C4B8; border-radius: 8px; font: inherit; font-size: 13px; background: #FFFFFF"></div>
+<div style="display: flex; flex-direction: column; gap: 6px; width: 200px"><label for="audit-tool" style="font-weight: 500">Tool</label><select id="audit-tool" style="height: 44px; box-sizing: border-box; padding: 0 10px; border: 1px solid #C9C4B8; border-radius: 8px; font: inherit; font-size: 13px; background: #FFFFFF"><option>All tools</option><option>Write tools</option><option>Backdating tools</option><option>Read tools</option></select></div>
+<div style="display: flex; flex-direction: column; gap: 6px; width: 180px"><label for="audit-result" style="font-weight: 500">Result</label><select id="audit-result" style="height: 44px; box-sizing: border-box; padding: 0 10px; border: 1px solid #C9C4B8; border-radius: 8px; font: inherit; font-size: 13px; background: #FFFFFF"><option>All results</option><option>Committed</option><option>Previewed</option><option>Blocked</option><option>Replayed</option></select></div>
+<button type="button" style="height: 44px; padding: 0 16px; border-radius: 8px; border: 1px solid #C9C4B8; background: #FFFFFF; color: #17191E; font: inherit; font-size: 13px; cursor: pointer">Export JSON</button>
+</section>
+
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 20px; flex-grow: 1; min-height: 0">
+
+<section aria-label="Tool calls" style="padding: 18px 20px; background: #FFFFFF; border: 1px solid #DDD8CE; border-radius: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+<h2 style="margin: 0; font-size: 16px; font-weight: 600">Tool calls</h2>
+<div style="display: grid; grid-template-columns: 70px 190px minmax(0, 1fr) 60px 110px; gap: 12px; padding: 10px 12px; background: #F3F1EC; border-radius: 6px; font-size: 12px; font-weight: 600; color: #3C3F46"><span>Time</span><span>Tool</span><span>Summary</span><span>Dry run</span><span>Result</span></div>
+<div style="display: flex; flex-direction: column; gap: 2px">
+<sc-for list="{{rows}}" as="row" hint-placeholder-count="8">
+<button type="button" aria-pressed="{{row.pressed}}" onClick="{{row.pick}}" style="{{row.rowStyle}}">
+<span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; color: #5B5F68">{{row.time}}</span>
+<span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">{{row.tool}}</span>
+<span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{row.summary}}</span>
+<span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; color: #5B5F68">{{row.dry}}</span>
+<span><span style="{{row.chipStyle}}">{{row.result}}</span></span>
+</button>
+</sc-for>
+</div>
+</section>
+
+<section aria-label="Call detail" style="padding: 18px 20px; background: #FFFFFF; border: 1px solid #DDD8CE; border-radius: 12px; display: flex; flex-direction: column; gap: 12px; min-width: 0">
+<div style="display: flex; align-items: center; justify-content: space-between"><h2 style="margin: 0; font-size: 16px; font-weight: 600">Call detail</h2><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #5B5F68">{{sel.auditId}}</span></div>
+<div style="display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 8px 12px; font-size: 13px">
+<span style="color: #5B5F68">Tool</span><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">{{sel.tool}}</span>
+<span style="color: #5B5F68">Result</span><span><span style="{{sel.chipStyle}}">{{sel.result}}</span></span>
+<span style="color: #5B5F68">Idempotency</span><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">{{sel.key}}</span>
+<span style="color: #5B5F68">Environment</span><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">mock</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; font-weight: 600; color: #3C3F46">Request</span><pre style="margin: 0; padding: 12px; background: #17191E; color: #D8D4CB; border-radius: 8px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; line-height: 1.45; white-space: pre-wrap; word-break: break-word">{{sel.request}}</pre></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; font-weight: 600; color: #3C3F46">Response</span><pre style="margin: 0; padding: 12px; background: #17191E; color: #D8D4CB; border-radius: 8px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; line-height: 1.45; white-space: pre-wrap; word-break: break-word">{{sel.response}}</pre></div>
+</section>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#1F4FB8","options":["#1F4FB8","#0F6E6E","#6B3FA0"]},"$preview":{"width":1440,"height":960}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { selected: 'AUD-0317' };
+  }
+  renderVals() {
+    var self = this;
+    var accent = this.props.accent ?? '#1F4FB8';
+    var chips = {
+      Committed: 'padding: 2px 8px; border-radius: 999px; background: #DCEFE3; color: #1E6B45; font-size: 12px',
+      Previewed: 'padding: 2px 8px; border-radius: 999px; background: #DCE6F8; color: #1B4299; font-size: 12px',
+      Blocked: 'padding: 2px 8px; border-radius: 999px; background: #F6D5CF; color: #8E2019; font-size: 12px; font-weight: 600',
+      Replayed: 'padding: 2px 8px; border-radius: 999px; background: #FBE6D4; color: #8A3F06; font-size: 12px',
+      Read: 'padding: 2px 8px; border-radius: 999px; background: #ECEAE4; color: #3C3F46; font-size: 12px'
+    };
+    var j = function (o) { return JSON.stringify(o, null, 2); };
+    var data = [
+      { id: 'AUD-0321', time: '14:32:08', tool: 'post_backdated_transaction', summary: 'TX-1010 on LN-0042, value 2026-09-30', dry: 'no', result: 'Committed', key: 'bd-5e21',
+        request: j({ tool: 'post_backdated_transaction', args: { loan_id: 'LN-0042', type: 'repayment', amount: '434.94', value_date: '2026-09-30', strategy: 'full', idempotency_key: 'bd-5e21' } }),
+        response: j({ status: 'committed', env: 'mock', strategy_used: 'full', chain: ['reverse TX-1004', 'reverse TX-1003', 'post TX-1010', 'repost TX-1013'] }) },
+      { id: 'AUD-0320', time: '14:31:40', tool: 'preview_backdated_transaction', summary: 'TX-1010 on LN-0042, value 2026-09-30', dry: 'yes', result: 'Previewed', key: '—',
+        request: j({ tool: 'preview_backdated_transaction', args: { loan_id: 'LN-0042', type: 'repayment', amount: '434.94', value_date: '2026-09-30' } }),
+        response: j({ status: 'preview', env: 'mock', status_change: 'in_arrears -> current', principal_delta: '-452.79' }) },
+      { id: 'AUD-0317', time: '14:30:12', tool: 'disburse_loan', summary: '€5,000.00 to C-0118, target env production', dry: 'no', result: 'Blocked', key: 'ds-9b02',
+        request: j({ tool: 'disburse_loan', args: { client_id: 'C-0118', amount: '5000.00', env: 'production', idempotency_key: 'ds-9b02' } }),
+        response: j({ status: 'blocked', env: 'mock', reason: 'Environment guard: writes are only allowed in mock or sandbox. Requested env production is not permitted.' }) },
+      { id: 'AUD-0316', time: '14:29:55', tool: 'make_repayment', summary: '€434.94 on LN-0077, repeated key', dry: 'no', result: 'Replayed', key: 'rp-7f3a',
+        request: j({ tool: 'make_repayment', args: { loan_id: 'LN-0077', amount: '434.94', idempotency_key: 'rp-7f3a' } }),
+        response: j({ status: 'replayed', env: 'mock', note: 'Idempotency key already used; original result returned, no new transaction created.', original_audit_id: 'AUD-0315' }) },
+      { id: 'AUD-0315', time: '14:29:51', tool: 'make_repayment', summary: '€434.94 on LN-0077', dry: 'no', result: 'Committed', key: 'rp-7f3a',
+        request: j({ tool: 'make_repayment', args: { loan_id: 'LN-0077', amount: '434.94', idempotency_key: 'rp-7f3a' } }),
+        response: j({ status: 'committed', env: 'mock', transaction_id: 'TX-1009', allocation: { fees: '0.00', interest: '27.10', principal: '407.84' } }) },
+      { id: 'AUD-0312', time: '14:27:03', tool: 'advance_date', summary: '+45 days, 2026-09-30 → 2026-11-14', dry: 'no', result: 'Committed', key: 'ck-11d0',
+        request: j({ tool: 'advance_date', args: { days: 45, idempotency_key: 'ck-11d0' } }),
+        response: j({ status: 'committed', env: 'mock', system_date: '2026-11-14', eod_runs: 45 }) },
+      { id: 'AUD-0308', time: '14:26:40', tool: 'generate_scenario', summary: 'arrears-portfolio-demo, 10 clients', dry: 'yes', result: 'Previewed', key: 'scn-a41c',
+        request: j({ tool: 'generate_scenario', args: { name: 'arrears-portfolio-demo', clients: 10, dry_run: true } }),
+        response: j({ status: 'preview', env: 'mock', clients: 10, loans: 10 }) },
+      { id: 'AUD-0305', time: '14:25:18', tool: 'get_loan_schedule', summary: 'LN-0042', dry: '—', result: 'Read', key: '—',
+        request: j({ tool: 'get_loan_schedule', args: { loan_id: 'LN-0042' } }),
+        response: j({ env: 'mock', installments: 12, next_due: '2026-12-01' }) }
+    ];
+    var baseRow = 'display: grid; grid-template-columns: 70px 190px minmax(0, 1fr) 60px 110px; gap: 12px; align-items: center; min-height: 44px; width: 100%; padding: 0 12px; border-radius: 6px; font: inherit; font-size: 13px; color: #17191E; text-align: left; cursor: pointer; box-sizing: border-box; ';
+    var sel = data[0];
+    var rows = data.map(function (d) {
+      var isSel = d.id === self.state.selected;
+      if (isSel) { sel = d; }
+      return Object.assign({}, d, {
+        pressed: isSel ? 'true' : 'false',
+        chipStyle: chips[d.result],
+        rowStyle: baseRow + (isSel ? 'background: #EEF2FB; border: 1px solid ' + accent : 'background: transparent; border: 1px solid transparent; border-bottom: 1px solid #ECE9E2'),
+        pick: function () { self.setState({ selected: d.id }); }
+      });
+    });
+    return {
+      accent: accent,
+      rows: rows,
+      sel: { auditId: sel.id, tool: sel.tool, result: sel.result, key: sel.key, request: sel.request, response: sel.response, chipStyle: chips[sel.result] }
+    };
+  }
+}
+</script>
+</body>
+</html>
