@@ -2,8 +2,9 @@ package corebanking
 
 import com.tjclp.fastmcp.{*, given}
 
-import corebanking.config.CoreEnv
-import corebanking.tools.Ping
+import corebanking.config.{CoreEnv, DbConfig}
+import corebanking.db.{Db, FlywayRunner}
+import corebanking.tools.{CreateClient, Ping}
 
 /**
  * Entry point for the core-banking-mcp server.
@@ -49,6 +50,11 @@ object Server extends McpServerApp[Stdio, Server.type]:
       // Unreachable: halt terminates the JVM immediately. Satisfies the type checker only.
       throw new IllegalStateException("unreachable: halt(1) did not terminate the JVM")
 
+  /** Every pending schema change is applied before the server starts serving tools. */
+  private val dbConfig: DbConfig = DbConfig.fromEnv()
+  FlywayRunner.migrate(dbConfig)
+  private val transactor = Db.transactor(dbConfig)
+
   override def name: String = "core-banking-mcp"
   override def version: String = "0.1.0"
 
@@ -59,3 +65,28 @@ object Server extends McpServerApp[Stdio, Server.type]:
   )
   def ping(): String =
     Ping.response(coreEnv, version)
+
+  @Tool(
+    name = Some("create_client"),
+    description = Some(
+      "Creates a client and logs the call to the audit trail. A repeated idempotency_key " +
+        "returns the original client unchanged, and dry_run has no effect on that path."
+    ),
+    readOnlyHint = Some(false)
+  )
+  def createClient(
+      @Param(description = "Client display name") name: String,
+      @Param(description = "Client email address, if known", required = false)
+      email: Option[String] = None,
+      @Param(
+        description = "Caller-supplied key; a repeated key returns the original result unchanged",
+        required = false
+      )
+      idempotencyKey: Option[String] = None,
+      @Param(
+        description = "When true, computes the result without writing to the database",
+        required = false
+      )
+      dryRun: Boolean = false
+  ): String =
+    CreateClient.run(transactor, coreEnv, name, email, idempotencyKey, dryRun)
