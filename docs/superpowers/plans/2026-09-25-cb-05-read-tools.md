@@ -742,7 +742,6 @@ final case class AccountData(
 object AccountData:
   given JsonEncoder[AccountData] = DeriveJsonEncoder.gen[AccountData]
 
-/** Query row shape for `list_accounts`, one-to-one with its `SELECT`'s column order. */
 private final case class AccountRow(
     id: UUID,
     productId: UUID,
@@ -960,7 +959,6 @@ final case class TransactionData(
 object TransactionData:
   given JsonEncoder[TransactionData] = DeriveJsonEncoder.gen[TransactionData]
 
-/** Query row shape for `get_transactions`, one-to-one with its `SELECT`'s column order. */
 private final case class TransactionRow(
     id: UUID,
     txType: String,
@@ -1250,8 +1248,8 @@ import corebanking.config.CoreEnv
 import corebanking.db.given
 import corebanking.domain.Schedule
 
-/** One scheduled installment on a loan: `loanId` is the loan's `accounts.id` — there is no
- * separate human-facing loan label in this schema. */
+/** One scheduled installment on a loan. `loanId` is the loan's own account id — this schema has
+ * no separate loan label. */
 final case class LoanScheduleData(
     loanId: String,
     seq: Int,
@@ -1269,10 +1267,9 @@ private final case class InstallmentRow(seq: Int, dueDate: LocalDate, amountDue:
 
 object GetLoanSchedule:
 
-  /** Loan terms come from `loans`; the interest/principal split is not stored anywhere and is
-   * recomputed here by replaying `Schedule.amortizationBreakdown` over whatever `installments`
-   * rows exist. Throws `NoSuchElementException` when `loanId` has no `loans` row at all — that is
-   * distinct from a loan with zero installments, which returns an empty schedule. */
+  /** The interest/principal split isn't stored — it's computed from the loan's own declining
+   * balance. An account with no loan is "not found"; a loan with no installments yet returns an
+   * empty schedule. */
   def find(loanId: UUID)(using DbCon): List[LoanScheduleData] =
     val loan = sql"SELECT principal, annual_rate FROM loans WHERE account_id = $loanId"
       .query[LoanRow]
