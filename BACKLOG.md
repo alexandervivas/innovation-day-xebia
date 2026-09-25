@@ -24,7 +24,7 @@
 
 | ID | Story | Acceptance Criteria | Path | Status |
 |---|---|---|---|---|
-| CB-05 | Read tools: get_client, list_accounts, get_transactions, get_loan_schedule | `get_client(client_id)` returns client details. `list_accounts(client_id)` returns all accounts + balances. `get_transactions(account_id, start_date?, end_date?)` filters by booking/value date. `get_loan_schedule(loan_id)` shows installment schedule with dates, amounts, interest, principal breakdown. All read from `system_clock`, not server clock. | critical-path | in-review |
+| CB-05 | Read tools: get_client, list_accounts, get_transactions, get_loan_schedule | `get_client(client_id)` returns client details. `list_accounts(client_id)` returns all accounts + balances. `get_transactions(account_id, start_date?, end_date?)` filters by booking/value date. `get_loan_schedule(loan_id)` shows installment schedule with dates, amounts, interest, principal breakdown. All read from `system_clock`, not server clock. | critical-path | done |
 
 ## E3: Writes & Safety
 
