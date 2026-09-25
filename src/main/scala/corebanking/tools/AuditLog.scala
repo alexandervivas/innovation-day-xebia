@@ -3,22 +3,23 @@ package corebanking.tools
 import com.augustnagro.magnum.{Transactor, transact}
 import com.augustnagro.magnum.sql
 
+import corebanking.config.CoreEnv
+
 /**
  * Writes one `audit_log` row per tool call, in its own transaction, committed regardless of
- * `dry_run` or an idempotency replay — CLAUDE.md rule 6 requires every tool call logged, and a dry
- * run or a repeated key is still a call that happened.
+ * `dry_run`.
  */
 object AuditLog:
   def record(
       xa: Transactor,
       toolName: String,
-      env: String,
+      env: CoreEnv,
       requestJson: String,
       responseJson: String
   ): Unit =
     transact(xa):
       sql"""
         INSERT INTO audit_log (tool_name, env, request, response)
-        VALUES ($toolName, $env, $requestJson::jsonb, $responseJson::jsonb)
+        VALUES ($toolName, ${env.label}, $requestJson::jsonb, $responseJson::jsonb)
       """.update.run()
       ()

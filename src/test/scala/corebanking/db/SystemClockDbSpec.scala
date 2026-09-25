@@ -11,11 +11,8 @@ import com.augustnagro.magnum.{DbCon, sql, transact}
 import corebanking.config.DbConfig
 
 /**
- * `system_clock` and its no-delete trigger come from CB-03's `V1__schema.sql`; this spec proves the
- * `LocalDate` codec, the transactor, and the dry-run wrapper this story adds on top of it all work
- * together against the real row. `FlywayRunner.migrate` runs eagerly (mirrors `Server.scala`'s own
- * startup order) so this spec works against a freshly created docker-compose Postgres with no
- * schema yet, not only one another spec already migrated.
+ * Proves the LocalDate codec, transactor, and dry-run wrapper work together against the real
+ * `system_clock` row.
  */
 object SystemClockDbSpec extends ZIOSpecDefault:
 
@@ -32,9 +29,8 @@ object SystemClockDbSpec extends ZIOSpecDefault:
         .currentDateValue
 
   /**
-   * Takes the ambient `DbCon`/`DbTx` rather than opening its own `transact` call, so it can run
-   * inside a `DryRun` block without escaping it onto a second, independent connection — see the
-   * ruling below.
+   * Takes the ambient `DbCon` so it can run inside a `DryRun` block without opening a second
+   * connection.
    */
   private def setCurrentDate(date: LocalDate)(using DbCon): Unit =
     sql"UPDATE system_clock SET current_date_value = $date WHERE id = true".update.run()
