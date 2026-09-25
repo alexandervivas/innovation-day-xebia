@@ -20,6 +20,7 @@ import corebanking.tools.{
   GetAuditLogRequest,
   GetClient,
   GetSystemDate,
+  ListAccounts,
   Ping,
   ToolResponse
 }
@@ -175,3 +176,11 @@ object Server extends McpServerApp[Stdio, Server.type]:
   )
   def getClient(clientId: UUID): String =
     connect(transactor)(GetClient.response(coreEnv, clientId))
+
+  @Tool(
+    name = Some("list_accounts"),
+    description = Some("Lists a client's accounts with balances as of the mock system date"),
+    readOnlyHint = Some(true)
+  )
+  def listAccounts(clientId: UUID): String =
+    connect(transactor)(ListAccounts.response(coreEnv, clientId))
