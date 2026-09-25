@@ -34,7 +34,7 @@
 | CB-07 | Write tool: disburse_loan | `disburse_loan(account_id, principal, annual_rate, term_months)` creates loan, generates installment schedule, posts disbursement transaction. Installments scheduled using system date. Accepts `idempotency_key`, `dry_run`. | critical-path | todo |
 | CB-08 | Write tool: make_repayment | `make_repayment(account_id, amount)` applies repayment with allocation order: fees (if any) → interest (accrued) → principal. Writes reversal if overpayment + returns amount applied + excess. Accepts `idempotency_key`, `dry_run`. | critical-path | todo |
 | CB-09 | Idempotency keys | All write tools enforce: repeated `idempotency_key` returns exact same result (same transaction IDs, same state, no duplicates). Idempotency stored in `transactions.idempotency_key` column. | critical-path | todo |
-| CB-10 | Audit log | Every tool call (read + write) logged to `audit_log(id, tool_name, params, result, timestamp, dry_run_flag)`. `get_audit_log(start_time?, end_time?)` read tool to retrieve history. | critical-path | todo |
+| CB-10 | Audit log | Every tool call (read + write) logged to `audit_log(id, tool_name, params, result, timestamp, dry_run_flag)`. `get_audit_log(start_time?, end_time?)` read tool to retrieve history. | critical-path | in-progress |
 | CB-11 | Dry-run on all writes | All write tools accept `dry_run: bool`. When true: preview all side effects (returned in `preview` field) without committing. DB state unchanged. Tool returns proposed transactions. | critical-path | todo |
 
 ## E4: Time Travel
