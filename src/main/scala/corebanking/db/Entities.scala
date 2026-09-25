@@ -73,3 +73,14 @@ case class SystemClockRow(currentDateValue: LocalDate) derives DbCodec
 @SqlName("products")
 @Table(PostgresDbType, SqlNameMapper.CamelToSnakeCase)
 case class ProductRef(@Id id: UUID, kind: String) derives DbCodec
+
+/** Read-only row shape for verifying an `audit_log` entry's columns in tests. */
+@SqlName("audit_log")
+@Table(PostgresDbType, SqlNameMapper.CamelToSnakeCase)
+case class AuditLogRow(
+    @Id id: Long,
+    toolName: String,
+    env: String,
+    request: String,
+    response: String
+) derives DbCodec
