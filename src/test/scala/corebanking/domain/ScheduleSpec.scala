@@ -28,5 +28,45 @@ object ScheduleSpec extends ZIOSpecDefault:
         dates(1) == LocalDate.parse("2026-10-01"),
         dates(2) == LocalDate.parse("2026-11-01")
       )
+    },
+    test("amortization breakdown replays declining balance across two installments") {
+      val installments = List(
+        (1, LocalDate.parse("2026-09-01"), BigDecimal("434.94")),
+        (2, LocalDate.parse("2026-10-01"), BigDecimal("434.94"))
+      )
+      val breakdown =
+        Schedule.amortizationBreakdown(terms.principal, terms.annualRate, installments)
+      assertTrue(
+        breakdown == List(
+          InstallmentBreakdown(
+            seq = 1,
+            dueDate = LocalDate.parse("2026-09-01"),
+            amountDue = BigDecimal("434.94"),
+            interest = BigDecimal("33.33"),
+            principal = BigDecimal("401.61")
+          ),
+          InstallmentBreakdown(
+            seq = 2,
+            dueDate = LocalDate.parse("2026-10-01"),
+            amountDue = BigDecimal("434.94"),
+            interest = BigDecimal("30.66"),
+            principal = BigDecimal("404.28")
+          )
+        )
+      )
+    },
+    test("amortization breakdown sorts installments by seq regardless of input order") {
+      val inOrder = List(
+        (1, LocalDate.parse("2026-09-01"), BigDecimal("434.94")),
+        (2, LocalDate.parse("2026-10-01"), BigDecimal("434.94"))
+      )
+      val reversed = inOrder.reverse
+      assertTrue(
+        Schedule.amortizationBreakdown(terms.principal, terms.annualRate, reversed) ==
+          Schedule.amortizationBreakdown(terms.principal, terms.annualRate, inOrder)
+      )
+    },
+    test("amortization breakdown of an empty installment list is empty") {
+      assertTrue(Schedule.amortizationBreakdown(terms.principal, terms.annualRate, Nil) == Nil)
     }
   )
