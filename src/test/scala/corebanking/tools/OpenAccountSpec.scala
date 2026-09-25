@@ -1,5 +1,6 @@
 package corebanking.tools
 
+import java.time.LocalDate
 import java.util.UUID
 
 import zio.*
@@ -84,14 +85,25 @@ object OpenAccountSpec extends ZIOSpecDefault:
         FROM transactions WHERE id = $id
       """.query[Transaction].run().headOption
 
-  private def systemDate(): String =
+  private def currentClock(): LocalDate =
     transact(xa):
       sql"SELECT current_date_value FROM system_clock WHERE id = true"
         .query[SystemClockRow]
         .run()
         .head
         .currentDateValue
-        .toString
+
+  private def systemDate(): String = currentClock().toString
+
+  /** Moves the ledger's own clock; restoring it is unconditional. */
+  private def setClock(date: LocalDate): UIO[Unit] =
+    ZIO
+      .attemptBlocking {
+        transact(xa):
+          sql"UPDATE system_clock SET current_date_value = $date WHERE id = true".update.run()
+      }
+      .unit
+      .orDie
 
   private def auditCount(marker: String): Long =
     transact(xa):
@@ -368,5 +380,41 @@ object OpenAccountSpec extends ZIOSpecDefault:
           rejectedAfter == 1L,
           error.error == "CLIENT_NOT_FOUND"
         )
+      },
+      test("an opening is dated by the system clock, so a backdated clock backdates the ledger") {
+        for
+          before <- ZIO.attemptBlocking(currentClock())
+          backdated = before.minusDays(30)
+          assertion <- (
+            for
+              _ <- setClock(backdated)
+              decoded <- ZIO.attemptBlocking {
+                val (clientId, productId) = seedClientAndProduct()
+                decode(
+                  OpenAccount.run(
+                    xa,
+                    CoreEnv.Mock,
+                    clientId.toString,
+                    productId.toString,
+                    "COP",
+                    Some("30.00"),
+                    None,
+                    dryRun = false
+                  )
+                ).data
+              }
+              posted <- ZIO.attemptBlocking(
+                transactionById(UUID.fromString(decoded.openingTransactionId))
+                  .getOrElse(throw new RuntimeException("no opening transaction was posted"))
+              )
+            yield assertTrue(
+              backdated != before,
+              decoded.openedOn == backdated.toString,
+              posted.bookingDate == backdated,
+              posted.valueDate == backdated
+            )
+          ).ensuring(setClock(before))
+          after <- ZIO.attemptBlocking(currentClock())
+        yield assertion && assertTrue(after == before)
       }
     ) @@ sequential @@ timeout(1.minute)

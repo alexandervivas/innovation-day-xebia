@@ -93,8 +93,11 @@ object Server extends McpServerApp[Stdio, Server.type]:
 
   @Tool(
     name = Some("open_account"),
-    description =
-      Some("Opens an account for a client against a product and posts the opening transaction."),
+    description = Some(
+      "Opens an account for a client against a product and posts the opening transaction. " +
+        "A repeated idempotency_key returns the original account and transaction unchanged, " +
+        "and dry_run has no effect on that path."
+    ),
     readOnlyHint = Some(false)
   )
   def openAccount(

@@ -178,7 +178,7 @@ object OpenAccount:
             "INVALID_AMOUNT",
             s"initial_deposit '$text' must be a non-negative amount with at most 2 decimal places"
           )
-        BigDecimal(parsed)
+        BigDecimal(parsed.setScale(2))
 
   private def findOpeningByIdempotencyKey(
       xa: Transactor,
