@@ -104,6 +104,22 @@ object AdvanceDateSpec extends ZIOSpecDefault:
         second.fromJson[DecodedEnvelope] == first.fromJson[DecodedEnvelope]
       )
     },
+    test("a dry_run call does not poison a later real call with the same idempotency_key") {
+      val key = UUID.randomUUID().toString
+      val before = rawCurrentDate()
+      val dryJson =
+        AdvanceDate.run(xa, CoreEnv.Mock, days = 7, idempotencyKey = Some(key), dryRun = true)
+      val afterDry = rawCurrentDate()
+      val realJson =
+        AdvanceDate.run(xa, CoreEnv.Mock, days = 7, idempotencyKey = Some(key), dryRun = false)
+      val afterReal = rawCurrentDate()
+      assertTrue(
+        afterDry == before,
+        afterReal == before.plusDays(7),
+        dryJson.fromJson[DecodedEnvelope].map(_.data.dryRun) == Right(true),
+        realJson.fromJson[DecodedEnvelope].map(_.data.dryRun) == Right(false)
+      )
+    },
     test("each call, including a replayed one, adds exactly one audit_log row") {
       val key = UUID.randomUUID().toString
       val beforeCount = auditCount("advance_date")

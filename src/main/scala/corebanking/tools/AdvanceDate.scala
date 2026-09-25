@@ -58,13 +58,15 @@ object AdvanceDate:
     )
     response
 
-  /** Most recent stored response for a matching key, or `None` on a first-time key. */
+  /** Most recent response a real call stored under this key; a dry run caches nothing. */
   private def findReplay(xa: Transactor, key: String): Option[String] =
     transact(xa):
       sql"""
         SELECT response::text
         FROM audit_log
-        WHERE tool_name = 'advance_date' AND request ->> 'idempotencyKey' = $key
+        WHERE tool_name = 'advance_date'
+          AND request ->> 'idempotencyKey' = $key
+          AND request ->> 'dryRun' = 'false'
         ORDER BY id DESC
         LIMIT 1
       """.query[String].run().headOption
