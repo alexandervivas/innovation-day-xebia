@@ -31,8 +31,7 @@ object GetTransactionsSpec extends ZIOSpecDefault:
     given JsonDecoder[TransactionData] = DeriveJsonDecoder.gen[TransactionData]
     given JsonDecoder[DecodedEnvelope] = DeriveJsonDecoder.gen[DecodedEnvelope]
 
-  // Same value_date and booking_date as each other, inserted in descending id order, to prove the
-  // `id` tiebreak orders them deterministically rather than leaving Postgres to pick.
+  // A reversal and the transaction it corrects can share a value date; id breaks the tie.
   private val TxSameDayHighId = UUID.fromString("018f3f00-0000-7000-8000-0000000000c9")
   private val TxSameDayLowId = UUID.fromString("018f3f00-0000-7000-8000-0000000000c8")
 
