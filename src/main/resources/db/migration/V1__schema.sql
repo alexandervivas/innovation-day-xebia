@@ -8,12 +8,17 @@
 -- transactions is append-only (CLAUDE.md rule 2): corrections are reversal (reverses_id) plus
 -- repost, never UPDATE/DELETE. That is enforced below with triggers, not just app discipline.
 --
+-- Money a client can see or be charged is NUMERIC(18,2), i.e. cents. accruals.amount is the one
+-- deliberate exception, at NUMERIC(18,8): daily actual/365 interest is an internal running figure,
+-- and docs/handoff/RecalculationSpec.scala requires it be "kept at full precision and rounded
+-- HALF_UP to cents when allocated or reported". Storing it at 2dp would round every single day and
+-- let a month of rows drift by real cents from the exact figure replay has to reproduce, so it is
+-- stored unrounded; rounding happens when the engine allocates or reports it, never on write.
+--
 -- Known open questions, deliberately left unanswered here because each needs an engine or
 -- write-tool spec that does not exist yet. These are NOT TODOs for CB-03:
 --   * transactions.type has no CHECK constraint: the allowed vocabulary belongs to the write
 --     tools, so it gets pinned when those stories define it.
---   * accruals.amount is NUMERIC(18,2); whether cent-exact daily actual/365 accrual needs more
---     scale to replay identically is for the recalculation engine spec (CB-15a/15b) to settle.
 --   * nothing links a repost back to the transaction it re-applies (only a reversal links back,
 --     via reverses_id); whether that link is needed depends on the correction flow those stories
 --     define.
@@ -109,7 +114,8 @@ CREATE TABLE accruals (
   id           BIGSERIAL PRIMARY KEY,
   account_id   TEXT NOT NULL REFERENCES accounts(id),
   accrual_date DATE NOT NULL,
-  amount       NUMERIC(18,2) NOT NULL,
+  -- Full-precision internal figure, not a cent amount; see the precision note in the header.
+  amount       NUMERIC(18,8) NOT NULL,
   UNIQUE (account_id, accrual_date)
 );
 

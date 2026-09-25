@@ -261,5 +261,31 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
           conn.rollback()
           wasRejected
         }.map(wasRejected => assertTrue(wasRejected))
+      },
+      test("accruals.amount keeps full precision: an 8-decimal accrual round-trips exactly") {
+        // 5000.00 * 0.08 / 365 = one day's actual/365 interest on the demo loan. At NUMERIC(18,2)
+        // this would be stored as 1.10, drifting by real cents once summed over a month;
+        // RecalculationSpec requires it unrounded until allocated or reported.
+        val dailyAccrual = "1.09589041"
+        withConnection { conn =>
+          conn.setAutoCommit(false)
+          seedLoanAccount(conn)
+          conn
+            .createStatement()
+            .execute(
+              "INSERT INTO accruals (account_id, accrual_date, amount) " +
+                s"VALUES ('schema-spec-account', CURRENT_DATE, $dailyAccrual)"
+            )
+          val rs = conn
+            .createStatement()
+            .executeQuery(
+              "SELECT amount FROM accruals WHERE account_id = 'schema-spec-account'"
+            )
+          rs.next()
+          val stored = rs.getBigDecimal("amount").toPlainString
+          rs.close()
+          conn.rollback()
+          stored
+        }.map(stored => assertTrue(stored == dailyAccrual))
       }
     ) @@ sequential @@ timeout(1.minute)
