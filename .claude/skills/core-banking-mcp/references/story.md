@@ -36,8 +36,8 @@ The title starts with the backlog ID. The issue body is the acceptance-criteria 
 
 Every story session runs the superpowers pipeline in this order. Skipping or reordering a step is a process violation; announce each skill as you invoke it.
 
-1. **`superpowers:brainstorming`** — classify the story (most CB stories are *bounded*; CB-13, CB-15a, CB-16/17 are *full* and get a spec file), ask only the questions that matter, present the design, and wait for the owner's approval. The issue body and `CLAUDE.md` invariants are the requirements; `docs/handoff/RecalculationSpec.scala` is the binding spec for CB-15a.
-2. **`superpowers:writing-plans`** — write the plan to `docs/superpowers/plans/YYYY-MM-DD-cb-NN-<slug>.md`: bite-sized TDD tasks, exact files, test commands. Each task names its model per the SKILL.md routing table. Plans are committed with the story and do not count toward the ~200-line budget.
+1. **`superpowers:brainstorming`** — classify the story (most CB stories are *bounded*; CB-13, CB-15a, CB-16/17 are *full*), ask only the questions that matter, and write the outcome to a file: a full spec at `docs/superpowers/specs/YYYY-MM-DD-cb-NN-<slug>.md`, or for a bounded story a short design note at the same path. The issue body and `CLAUDE.md` invariants are the requirements; `docs/handoff/RecalculationSpec.scala` is the binding spec for CB-15a. Then open the **Review Surface** (below) and wait for the owner's approval.
+2. **`superpowers:writing-plans`** — write the plan to `docs/superpowers/plans/YYYY-MM-DD-cb-NN-<slug>.md`: bite-sized TDD tasks, exact files, test commands. Each task names its model per the SKILL.md routing table. Then open the **Review Surface** again (plan plus spec) and wait for the owner's approval before any implementation subagent is dispatched. Specs and plans are committed with the story and do not count toward the ~200-line budget.
 3. **`superpowers:subagent-driven-development`** — execute the plan in this session: a fresh implementer subagent per task, a task review after each, a whole-branch review at the end. Map the roles to this repository's profiles, always with an explicit `model`:
    - implementer → `implementation-worker` (or `test-worker` for test-only tasks); each task follows `superpowers:test-driven-development` (failing test first).
    - task reviewer → `risk-reviewer` on `sonnet` for small mechanical diffs, `opus` for money, ledger, clock, engine, or idempotency diffs.
@@ -45,6 +45,23 @@ Every story session runs the superpowers pipeline in this order. Skipping or reo
    Keep the SDD ledger under `.superpowers/sdd/<plan>/` (git-ignored). Rulings go in the ledger; the four stop conditions (destructive op, security-sensitive action, push/merge/publish, unrecoverable plan) still apply and the push is covered by the standing authorization below.
 4. **`superpowers:verification-before-completion`** — run the gates below yourself and read the output before claiming anything is done.
 5. **`superpowers:finishing-a-development-branch`** — the only allowed outcome is *open a pull request*; never merge from the story session and never discard the branch.
+
+### Review Surface — mandatory before every approval request
+
+The owner reviews specs and plans in VS Code, not in chat. Whenever a spec, design note, or plan is ready for review before coding, and again whenever it is revised after the owner asks for changes:
+
+1. Open a fresh VS Code window containing exactly the files to review, with real absolute paths (non-interactive, returns immediately):
+
+   ```bash
+   code -n <abs worktree>/docs/superpowers/specs/<date>-cb-NN-<slug>.md \
+        <abs worktree>/docs/superpowers/plans/<date>-cb-NN-<slug>.md   # only files that exist at this gate
+   ```
+
+   Include every artifact of the gate (spec or design note at the brainstorming gate; plan and spec at the planning gate; any handoff file the spec depends on, such as `docs/handoff/RecalculationSpec.scala` for CB-15a). Nothing else goes in that window.
+2. State in the approval request that the window is open, list the same absolute paths, and give the fallback for when `code` is unavailable or the owner is remote: `cat` of each path.
+3. Ask for one of two answers: **approve** or **changes**. On changes, revise the files, reopen the window with `code -n` on the revised files, and ask again. Do not proceed on silence, on a partial answer, or on a description of the files instead of the files.
+
+An approval request without an open window listing the paths is invalid; treat it as not having been made.
 
 Story-specific rules that hold inside every task:
 
