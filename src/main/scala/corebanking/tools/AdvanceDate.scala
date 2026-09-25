@@ -65,7 +65,10 @@ object AdvanceDate:
     )
     response
 
-  /** Most recent response a real call stored under this key and env; a dry run caches nothing. */
+  /**
+   * Most recent successful real move under this key and env; a dry run or a rejection caches
+   * nothing.
+   */
   private def findReplay(xa: Transactor, env: CoreEnv, key: String): Option[String] =
     transact(xa):
       sql"""
@@ -75,6 +78,7 @@ object AdvanceDate:
           AND env = ${env.label}
           AND request ->> 'idempotencyKey' = $key
           AND request ->> 'dryRun' = 'false'
+          AND response -> 'data' -> 'error' IS NULL
         ORDER BY id DESC
         LIMIT 1
       """.query[String].run().headOption
