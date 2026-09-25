@@ -94,6 +94,12 @@ object ListAccountsSpec extends ZIOSpecDefault:
         ZIO
           .attemptBlocking(rollingBack(xa)(ListAccounts.find(MissingClientId)))
           .exit
-          .map(exit => assertTrue(exit.isFailure))
+          .map { exit =>
+            assertTrue(
+              exit.causeOption
+                .flatMap(_.failureOption)
+                .exists(_.isInstanceOf[NoSuchElementException])
+            )
+          }
     }
   ) @@ TestAspect.sequential @@ TestAspect.timeout(30.seconds)
