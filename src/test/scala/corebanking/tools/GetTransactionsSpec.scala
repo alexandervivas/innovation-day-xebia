@@ -31,6 +31,11 @@ object GetTransactionsSpec extends ZIOSpecDefault:
     given JsonDecoder[TransactionData] = DeriveJsonDecoder.gen[TransactionData]
     given JsonDecoder[DecodedEnvelope] = DeriveJsonDecoder.gen[DecodedEnvelope]
 
+  // Same value_date and booking_date as each other, inserted in descending id order, to prove the
+  // `id` tiebreak orders them deterministically rather than leaving Postgres to pick.
+  private val TxSameDayHighId = UUID.fromString("018f3f00-0000-7000-8000-0000000000c9")
+  private val TxSameDayLowId = UUID.fromString("018f3f00-0000-7000-8000-0000000000c8")
+
   private def seedFixture()(using DbCon): Unit =
     sql"INSERT INTO products (id, name, kind, annual_rate) VALUES ($ProductId, 'Test Savings', 'savings', 0.015)".update
       .run()
@@ -45,6 +50,10 @@ object GetTransactionsSpec extends ZIOSpecDefault:
     sql"INSERT INTO transactions (id, account_id, type, amount, booking_date, value_date, reverses_id, idempotency_key) VALUES ($TxReversalId, $AccountId, 'reversal', 200.00, DATE '2026-02-11', DATE '2026-02-11', $TxMidId, 'get-tx-reversal')".update
       .run()
     sql"INSERT INTO transactions (id, account_id, type, amount, booking_date, value_date, idempotency_key) VALUES ($TxLateId, $AccountId, 'deposit', 300.00, DATE '2026-03-20', DATE '2026-03-20', 'get-tx-late')".update
+      .run()
+    sql"INSERT INTO transactions (id, account_id, type, amount, booking_date, value_date, idempotency_key) VALUES ($TxSameDayHighId, $AccountId, 'deposit', 40.00, DATE '2026-04-01', DATE '2026-04-01', 'get-tx-sameday-high')".update
+      .run()
+    sql"INSERT INTO transactions (id, account_id, type, amount, booking_date, value_date, idempotency_key) VALUES ($TxSameDayLowId, $AccountId, 'deposit', 50.00, DATE '2026-04-01', DATE '2026-04-01', 'get-tx-sameday-low')".update
       .run()
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("GetTransactions")(
@@ -61,7 +70,9 @@ object GetTransactionsSpec extends ZIOSpecDefault:
           }
           .map { txs =>
             assertTrue(
-              txs.map(_.id) == List(TxEarlyId, TxMidId, TxReversalId, TxLateId).map(_.toString),
+              txs.map(_.id) ==
+                List(TxEarlyId, TxMidId, TxReversalId, TxLateId, TxSameDayLowId, TxSameDayHighId)
+                  .map(_.toString),
               txs.find(_.id == TxReversalId.toString).flatMap(_.reversesId) == Some(
                 TxMidId.toString
               )
@@ -153,6 +164,22 @@ object GetTransactionsSpec extends ZIOSpecDefault:
                         BigDecimal("300.00"),
                         LocalDate.parse("2026-03-20"),
                         LocalDate.parse("2026-03-20"),
+                        None
+                      ),
+                      TransactionData(
+                        TxSameDayLowId.toString,
+                        "deposit",
+                        BigDecimal("50.00"),
+                        LocalDate.parse("2026-04-01"),
+                        LocalDate.parse("2026-04-01"),
+                        None
+                      ),
+                      TransactionData(
+                        TxSameDayHighId.toString,
+                        "deposit",
+                        BigDecimal("40.00"),
+                        LocalDate.parse("2026-04-01"),
+                        LocalDate.parse("2026-04-01"),
                         None
                       )
                     )

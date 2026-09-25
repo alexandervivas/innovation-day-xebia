@@ -11,8 +11,8 @@ import corebanking.db.given
 import corebanking.domain.Schedule
 
 /**
- * One scheduled installment on a loan. `loanId` is the loan's own account id — this schema has no
- * separate loan label.
+ * One scheduled installment on a loan: when it falls due, what is owed, and how much of that is
+ * interest versus principal.
  */
 final case class LoanScheduleData(
     loanId: String,

@@ -8,8 +8,8 @@ import com.augustnagro.magnum.{Spec as _, *}
 import corebanking.config.DbConfig
 
 /**
- * Proves the shared `Transactor` and the `LocalDate` codec work end-to-end against the real
- * docker-compose Postgres (must already be up: `docker compose up -d`).
+ * Proves the `Transactor` and the `LocalDate` codec work end-to-end against the real docker-compose
+ * Postgres (must already be up: `docker compose up -d`).
  */
 object DbSpec extends ZIOSpecDefault:
 

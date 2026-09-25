@@ -43,7 +43,7 @@ object ListAccounts:
       LEFT JOIN transactions t ON t.account_id = a.id
       WHERE a.client_id = $clientId
       GROUP BY a.id, a.product_id, a.kind, a.opened_on
-      ORDER BY a.opened_on
+      ORDER BY a.opened_on, a.id
     """.query[AccountRow].run().toList.map { r =>
       AccountData(r.id.toString, r.productId.toString, r.kind, r.openedOn, r.balance)
     }
