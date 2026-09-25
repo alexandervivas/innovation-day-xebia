@@ -149,7 +149,9 @@ object FullReplay extends RecalculationStrategy:
           // Falling inside the window is not enough: with the window open to the system date it
           // also catches fees the recomputation charges all over again (the backdated payment was
           // too small to close the gap). Reverse only the fees the `after` replay no longer
-          // charges, so `chain` and `after` can never contradict each other.
+          // charges, so the chain never claims a reversal the recomputation contradicts. The
+          // converse isn't guaranteed: a fee outside the window can still drop from `after` with
+          // no `Reverse` step (see the spec's open question for CB-13/16/17).
           val afterFeeIds = afterReplay.lateFees.map((id, _) => id).toSet
           val affectedFees = beforeReplay.lateFees.filter { (id, chargedOn) =>
             !afterFeeIds.contains(id) &&
