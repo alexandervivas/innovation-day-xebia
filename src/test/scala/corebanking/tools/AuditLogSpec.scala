@@ -34,16 +34,17 @@ object AuditLogSpec extends ZIOSpecDefault:
    * Raw JDBC (not magnum) since this reads back JSONB as text for value assertions, matching
    * `ProductSeedSpec`'s convention for column-value checks.
    */
-  private def readRow(toolName: String): (String, String, String, String) =
+  private def readRow(toolName: String): (String, String, String, String, Boolean) =
     val conn = DriverManager.getConnection(config.url, config.user, config.password)
     try
       val stmt = conn.prepareStatement(
-        "SELECT tool_name, env, request::text, response::text FROM audit_log WHERE tool_name = ?"
+        "SELECT tool_name, env, request::text, response::text, dry_run_flag FROM audit_log WHERE tool_name = ?"
       )
       stmt.setString(1, toolName)
       val rs = stmt.executeQuery()
       if !rs.next() then throw new RuntimeException(s"no audit_log row for tool_name=$toolName")
-      val row = (rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4))
+      val row =
+        (rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getBoolean(5))
       rs.close()
       row
     finally conn.close()
@@ -62,18 +63,19 @@ object AuditLogSpec extends ZIOSpecDefault:
             responseJson = """{"env":"mock","data":{}}"""
           )
           val after = countByToolName(toolName)
-          val (dbToolName, dbEnv, dbRequest, dbResponse) = readRow(toolName)
-          (before, after, dbToolName, dbEnv, dbRequest, dbResponse, toolName)
+          val (dbToolName, dbEnv, dbRequest, dbResponse, dryRunFlag) = readRow(toolName)
+          (before, after, dbToolName, dbEnv, dbRequest, dbResponse, dryRunFlag, toolName)
         }
         .map {
-          case (before, after, dbToolName, dbEnv, dbRequest, dbResponse, toolName) =>
+          case (before, after, dbToolName, dbEnv, dbRequest, dbResponse, dryRunFlag, toolName) =>
             assertTrue(
               before == 0,
               after == 1,
               dbToolName == toolName,
               dbEnv == "mock",
               dbRequest.fromJson[SampleRequest] == Right(SampleRequest(a = 1)),
-              dbResponse.fromJson[SampleResponse] == Right(SampleResponse(env = "mock"))
+              dbResponse.fromJson[SampleResponse] == Right(SampleResponse(env = "mock")),
+              dryRunFlag == false
             )
         }
     },
@@ -94,5 +96,21 @@ object AuditLogSpec extends ZIOSpecDefault:
           (before, after)
         }
         .map { case (before, after) => assertTrue(before == 0, after == 1) }
+    },
+    test("writes dry_run_flag = true when the call is a dry run") {
+      ZIO
+        .attempt {
+          val toolName = "cb10_audit_log_dry_run_spec_" + java.util.UUID.randomUUID().toString
+          AuditLog.record(
+            xa,
+            toolName,
+            env = CoreEnv.Mock,
+            requestJson = """{"a":1}""",
+            responseJson = """{"env":"mock","data":{}}""",
+            dryRun = true
+          )
+          readRow(toolName)
+        }
+        .map { case (_, _, _, _, dryRunFlag) => assertTrue(dryRunFlag) }
     }
   ) @@ sequential @@ timeout(1.minute)
