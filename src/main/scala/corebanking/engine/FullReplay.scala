@@ -65,6 +65,10 @@ object FullReplay extends RecalculationStrategy:
       val dueToday = installmentAmount * BigDecimal(installments.count(_.dueDate == day))
       val scheduled = accrued.copy(cumScheduled = accrued.cumScheduled + dueToday)
 
+      // Deliberate ordering: the fee is charged before the day's repayments are applied, so money
+      // arriving exactly on dueDate + graceDays is too late to avoid it (it pays the fee instead).
+      // `feeChargedFor` is a belt-and-braces guard, not a working de-duplicator: the day loop
+      // visits each installment's fee day exactly once per replay, so it can never block a repeat.
       val charged = installments.foldLeft(scheduled) { (state, inst) =>
         val feeDay = inst.dueDate.plusDays(terms.graceDays.toLong)
         if feeDay == day && !state.feeChargedFor.contains(inst.index)
@@ -134,14 +138,21 @@ object FullReplay extends RecalculationStrategy:
           val beforeReplay = replay(terms, events, systemDate)
           // On a value-date tie, the backdated transaction is applied after the existing ones.
           val newEvents = (events :+ newTx).sortBy(_.valueDate.toEpochDay)
-          val after = replay(terms, newEvents, systemDate).state
+          val afterReplay = replay(terms, newEvents, systemDate)
+          val after = afterReplay.state
 
           val affectedUserEvents = events.filter(!_.valueDate.isBefore(newTx.valueDate))
 
           // Only reverses late fees charged between the backdated value date and the last reposted
           // transaction (or the system date, if nothing is reposted).
           val windowEnd = affectedUserEvents.map(_.valueDate).maxOption.getOrElse(systemDate)
-          val affectedFees = beforeReplay.lateFees.filter { (_, chargedOn) =>
+          // Falling inside the window is not enough: with the window open to the system date it
+          // also catches fees the recomputation charges all over again (the backdated payment was
+          // too small to close the gap). Reverse only the fees the `after` replay no longer
+          // charges, so `chain` and `after` can never contradict each other.
+          val afterFeeIds = afterReplay.lateFees.map((id, _) => id).toSet
+          val affectedFees = beforeReplay.lateFees.filter { (id, chargedOn) =>
+            !afterFeeIds.contains(id) &&
             !chargedOn.isBefore(newTx.valueDate) && !chargedOn.isAfter(windowEnd)
           }
 
