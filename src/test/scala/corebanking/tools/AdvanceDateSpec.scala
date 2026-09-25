@@ -178,5 +178,21 @@ object AdvanceDateSpec extends ZIOSpecDefault:
       AdvanceDate.run(xa, CoreEnv.Mock, days = 1, idempotencyKey = Some(key), dryRun = false)
       val afterSecondCall = auditCount("advance_date")
       assertTrue(afterFirstCall == beforeCount + 1, afterSecondCall == beforeCount + 2)
+    },
+    test("a rejected call does not poison a later valid call with the same idempotency_key") {
+      val key = UUID.randomUUID().toString
+      val before = rawCurrentDate()
+      val rejectedJson =
+        AdvanceDate.run(xa, CoreEnv.Mock, days = 0, idempotencyKey = Some(key), dryRun = false)
+      val afterRejected = rawCurrentDate()
+      val validJson =
+        AdvanceDate.run(xa, CoreEnv.Mock, days = 5, idempotencyKey = Some(key), dryRun = false)
+      val afterValid = rawCurrentDate()
+      assertTrue(
+        afterRejected == before,
+        afterValid == before.plusDays(5),
+        rejectedJson.fromJson[DecodedErrorEnvelope].isRight,
+        validJson.fromJson[DecodedEnvelope].map(_.data.daysAdvanced) == Right(5)
+      )
     }
   ) @@ sequential @@ timeout(1.minute)

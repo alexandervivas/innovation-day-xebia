@@ -15,7 +15,7 @@ final case class SystemDateData(currentDate: String)
 object SystemDateData:
   given JsonEncoder[SystemDateData] = DeriveJsonEncoder.gen[SystemDateData]
 
-/** Reads the ledger's own clock — never the JVM clock (CLAUDE.md rule 4). */
+/** Reads the ledger's own clock, never the JVM clock. */
 object GetSystemDate:
 
   def run(xa: Transactor, env: CoreEnv): String =
