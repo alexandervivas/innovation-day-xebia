@@ -46,7 +46,8 @@ private object OpenAccountRequest:
   given JsonEncoder[OpenAccountRequest] = DeriveJsonEncoder.gen[OpenAccountRequest]
 
 /** A rejected opening, always raised before anything is written to the ledger. */
-final private case class OpenAccountFailure(code: String, message: String) extends RuntimeException
+final private case class OpenAccountFailure(code: String, message: String)
+    extends RuntimeException(message)
 
 /**
  * Opens an account for an existing client on an existing product and posts its `account_opening`
@@ -143,7 +144,7 @@ object OpenAccount:
             accountId = accountId,
             `type` = "account_opening",
             amount = deposit,
-            // An opening applies the day it is booked; only later stories backdate a value date.
+            // An opening applies the day it is booked.
             bookingDate = today,
             valueDate = today,
             reversesId = None,
@@ -164,13 +165,20 @@ object OpenAccount:
     raw match
       case None => BigDecimal("0.00")
       case Some(text) =>
-        try BigDecimal(new JBigDecimal(text))
-        catch
-          case _: NumberFormatException =>
-            throw OpenAccountFailure(
-              "INVALID_AMOUNT",
-              s"initial_deposit '$text' is not a decimal amount"
-            )
+        val parsed =
+          try new JBigDecimal(text)
+          catch
+            case _: NumberFormatException =>
+              throw OpenAccountFailure(
+                "INVALID_AMOUNT",
+                s"initial_deposit '$text' is not a decimal amount"
+              )
+        if parsed.scale > 2 || parsed.signum < 0 then
+          throw OpenAccountFailure(
+            "INVALID_AMOUNT",
+            s"initial_deposit '$text' must be a non-negative amount with at most 2 decimal places"
+          )
+        BigDecimal(parsed)
 
   private def findOpeningByIdempotencyKey(
       xa: Transactor,
@@ -179,7 +187,7 @@ object OpenAccount:
     transact(xa):
       sql"""
         SELECT id, account_id, type, amount, booking_date, value_date, reverses_id, idempotency_key
-        FROM transactions WHERE idempotency_key = $key
+        FROM transactions WHERE idempotency_key = $key AND type = 'account_opening'
       """.query[Transaction].run().headOption.map { tx =>
         val account =
           sql"SELECT id, client_id, product_id, kind, opened_on, currency FROM accounts WHERE id = ${tx.accountId}"
