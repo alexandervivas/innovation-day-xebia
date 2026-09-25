@@ -12,7 +12,7 @@ object DryRun:
    * result) or commits normally otherwise, so callers build an identical response either way.
    *
    * A tool's `audit_log` insert must happen outside this block, in its own transaction, so a dry
-   * run still gets logged. Do not nest calls to this method.
+   * run still gets logged. Do not nest calls to this method -- it can deadlock.
    */
   def apply[T](xa: Transactor, dryRun: Boolean)(f: DbTx ?=> T): T =
     try
