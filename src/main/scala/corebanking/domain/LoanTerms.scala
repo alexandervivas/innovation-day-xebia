@@ -13,15 +13,15 @@ final case class LoanTerms(
 )
 
 /**
- * A ledger fact the recalculation engine replays. Every case carries both dates of invariant 3:
- * `bookingDate` (when it was recorded) and `valueDate` (when it applies to the loan).
+ * A ledger fact the recalculation engine replays: a disbursement or a repayment, each with its
+ * booking date and value date.
  */
 enum UserEvent:
   case Disbursement(id: String, amount: BigDecimal, valueDate: LocalDate, bookingDate: LocalDate)
   case Repayment(id: String, amount: BigDecimal, valueDate: LocalDate, bookingDate: LocalDate)
 
 object UserEvent:
-  /** Reads the fields every case shares, so replay can sort and apply events without matching. */
+  /** Shared accessors for id, amount, and value date across both `UserEvent` cases. */
   extension (event: UserEvent)
     def id: String = event match
       case Disbursement(id, _, _, _) => id
