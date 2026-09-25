@@ -41,7 +41,7 @@ Both are additive, nullable-or-defaulted columns on existing tables — no renam
 
 ## Tool pattern (reused by both tools)
 
-1. If `idempotency_key` is supplied, look up a prior row by it (`clients.idempotency_key` / `transactions.idempotency_key`). If found, return the prior result unchanged — no writes, no new audit_log row beyond the one already written for the original call.
+1. If `idempotency_key` is supplied, look up a prior row by it (`clients.idempotency_key` / `transactions.idempotency_key`). If found, return the prior result unchanged — no new client/account/transaction row. The repeated call still writes its own `audit_log` row, per step 4.
 2. Otherwise, inside one `transact` block: read `system_clock.current_date_value`, mint UUIDv7 id(s), insert the row(s).
 3. If `dry_run = true`, force a rollback per the pattern above; the response carries the same payload shape plus `dryRun: true`.
 4. Always write one `audit_log` row (`tool_name`, `env`, `request` as JSON, `response` as JSON) in its own `transact` call, committed regardless of `dry_run` or idempotency-hit — an audit trail must record that the call happened even when nothing else did.

@@ -4,7 +4,7 @@ import com.tjclp.fastmcp.{*, given}
 
 import corebanking.config.{CoreEnv, DbConfig}
 import corebanking.db.{Db, FlywayRunner}
-import corebanking.tools.{CreateClient, Ping}
+import corebanking.tools.{CreateClient, OpenAccount, Ping}
 
 /**
  * Entry point for the core-banking-mcp server.
@@ -90,3 +90,40 @@ object Server extends McpServerApp[Stdio, Server.type]:
       dryRun: Boolean = false
   ): String =
     CreateClient.run(transactor, coreEnv, name, email, idempotencyKey, dryRun)
+
+  @Tool(
+    name = Some("open_account"),
+    description = Some(
+      "Opens an account for a client against a product and posts the opening transaction. " +
+        "A repeated idempotency_key returns the original account and transaction unchanged, " +
+        "and dry_run has no effect on that path."
+    ),
+    readOnlyHint = Some(false)
+  )
+  def openAccount(
+      @Param(description = "Existing client id") clientId: String,
+      @Param(description = "Existing product id") productId: String,
+      @Param(description = "ISO currency code: COP, USD, or EUR") currency: String,
+      @Param(description = "Opening balance; defaults to 0.00", required = false)
+      initialDeposit: Option[String] = None,
+      @Param(
+        description = "Caller-supplied key; a repeated key returns the original result unchanged",
+        required = false
+      )
+      idempotencyKey: Option[String] = None,
+      @Param(
+        description = "When true, computes the result without writing to the database",
+        required = false
+      )
+      dryRun: Boolean = false
+  ): String =
+    OpenAccount.run(
+      transactor,
+      coreEnv,
+      clientId,
+      productId,
+      currency,
+      initialDeposit,
+      idempotencyKey,
+      dryRun
+    )

@@ -11,14 +11,8 @@ import com.augustnagro.magnum.{sql, transact}
 import corebanking.config.DbConfig
 
 /**
- * Proves the `dry_run` write-safety contract (CLAUDE.md rule 5) against the real docker-compose
- * Postgres. Uses the harmless, already-seeded `system_clock` singleton row rather than the
- * append-only `transactions` table.
- *
- * Every test that mutates the clock restores it through `.ensuring`, so the mandated system time
- * source (CLAUDE.md rule 4) is put back even when the assertions or the `DryRun` call itself fail.
- * A plain step in the `for`-comprehension would be skipped on the first failure and would leave
- * `system_clock` permanently bumped, which survives `make down` because `postgres_data` does.
+ * Proves the `dry_run` write-safety contract against the real Postgres, using the harmless
+ * `system_clock` singleton row rather than the append-only `transactions` table.
  */
 object DryRunSpec extends ZIOSpecDefault:
 
@@ -43,11 +37,7 @@ object DryRunSpec extends ZIOSpecDefault:
       .unit
       .orDie
 
-  /**
-   * A real failure inside the block must reach the caller unchanged: `DryRun` catches only its own
-   * rollback signal. If a refactor ever widened that `catch`, a genuine error would be silently
-   * reported as a successful write, so this is asserted for both `dryRun` values.
-   */
+  /** A real failure must reach the caller unchanged; only the rollback signal is caught. */
   private def errorPathTest(dryRun: Boolean) =
     test(
       s"a failure inside the block propagates unchanged and persists nothing (dryRun = $dryRun)"
