@@ -49,7 +49,7 @@ object CreateClient:
   ): String =
     val data = execute(xa, name, email, idempotencyKey, dryRun)
     val response = ToolResponse.respond(env, data)
-    // Logged after the write so a dry run's rollback cannot take its own audit entry with it.
+    // Every call is auditable, including one that only previews.
     AuditLog.record(
       xa,
       toolName = "create_client",
