@@ -24,6 +24,7 @@ lazy val root = (project in file("."))
       "org.postgresql" % "postgresql" % "42.7.13",
       "com.augustnagro" %% "magnum" % "1.3.1",
       "com.augustnagro" %% "magnumpg" % "1.3.1",
+      "com.github.f4b6a3" % "uuid-creator" % "6.1.1",
       "dev.zio" %% "zio-test" % "2.1.26" % Test,
       "dev.zio" %% "zio-test-sbt" % "2.1.26" % Test
     ),
