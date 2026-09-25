@@ -2,8 +2,9 @@ package corebanking
 
 import com.tjclp.fastmcp.{*, given}
 
-import corebanking.config.CoreEnv
-import corebanking.tools.Ping
+import corebanking.config.{CoreEnv, DbConfig}
+import corebanking.db.{Db, FlywayRunner}
+import corebanking.tools.{GetSystemDate, Ping}
 
 /**
  * Entry point for the core-banking-mcp server.
@@ -49,6 +50,11 @@ object Server extends McpServerApp[Stdio, Server.type]:
       // Unreachable: halt terminates the JVM immediately. Satisfies the type checker only.
       throw new IllegalStateException("unreachable: halt(1) did not terminate the JVM")
 
+  /** The ledger's shared database connection, ready before any tool call. */
+  private val dbConfig: DbConfig = DbConfig.fromEnv()
+  FlywayRunner.migrate(dbConfig)
+  private val transactor = Db.transactor(dbConfig)
+
   override def name: String = "core-banking-mcp"
   override def version: String = "0.1.0"
 
@@ -59,3 +65,11 @@ object Server extends McpServerApp[Stdio, Server.type]:
   )
   def ping(): String =
     Ping.response(coreEnv, version)
+
+  @Tool(
+    name = Some("get_system_date"),
+    description = Some("Returns the ledger's current date from system_clock, not the JVM clock"),
+    readOnlyHint = Some(true)
+  )
+  def getSystemDate(): String =
+    GetSystemDate.run(transactor, coreEnv)
