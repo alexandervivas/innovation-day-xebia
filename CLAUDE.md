@@ -78,4 +78,5 @@ CORE_ENV=production scripts/run-server.sh
 - Work on `main` only for scaffolding (`CB-01`, `CB-02`); every story on its own `cb-NN-*` branch
 - Secret scan before every commit (pattern must both self-test and find no leaks)
 - Conventional Commits in English; ≤ 300 changed lines per PR, always via `gh stack` from the story worktree
+- **Comments and PR text (owner rule 2026-09-25):** Comments explain the business domain only, in product words (value date, booking date, arrears, grace period, allocation order, reversal, repost). One line where possible. No implementation narration, no history of why an alternative was rejected, no review or ruling text, no restating what the code visibly does. Scaladoc on public domain types: one sentence. PR bodies stay under ~15 lines: `Closes #N`, what changed (≤3 bullets), acceptance evidence (commands and result lines), stack position. Commit bodies ≤3 bullets.
 - `git push` and `gh pr create` once per session; other GitHub writes need explicit approval

@@ -86,7 +86,16 @@ Every story is published as a stack, even a stack of one, from inside its worktr
    ```
 
 3. Set the row to `in-review` in `BACKLOG.md` in the bottom increment. Commit messages reference the story and issue (`feat(db): add schema and Flyway migrations (CB-03, #3)`).
-4. Publish with `gh stack submit`, which pushes every branch and creates or updates the chain of PRs. Then edit each PR body (`gh pr edit <n> --body-file`): the bottom PR carries `Closes #N`; every PR states its stack position (`Stack 2/3`), links the issue, lists only its own increment's acceptance criteria with evidence and the model per batch.
+4. Publish with `gh stack submit`, which pushes every branch and creates or updates the chain of PRs. Then edit each PR body (`gh pr edit <n> --body-file`) to this shape and nothing more, under ~15 lines:
+
+   ```markdown
+   Closes #N · Stack k/n
+   **What:** ≤3 bullets, product words (what the bank can now do or what the ledger now guarantees)
+   **Evidence:** the gate commands and their result lines; one line per acceptance criterion met
+   **Models:** haiku/sonnet/opus per batch, one line
+   ```
+
+   No design rationale, no review history, no rulings: those live in the SDD ledger and the spec. Commit bodies follow the same rule (≤3 bullets).
 5. Stop: the stack waits for a human review. Never merge from the story session. The worktree stays until the merge session reclaims it.
 
 Report per the Completion Report and name the next story: the lowest open issue whose blockers are all closed.

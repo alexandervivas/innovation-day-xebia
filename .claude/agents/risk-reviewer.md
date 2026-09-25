@@ -13,3 +13,4 @@ Lead with actionable findings ordered by severity. Cite file and line references
 Weigh test changes for weakening as well as correctness: a property test narrowed to a fixed order, or a clock test pinned to `now()`, is a regression, not a fix.
 Ignore style-only concerns unless they hide a material risk. Do not edit files or update BACKLOG.md, GitHub, branches, commits, or pull requests. Use Bash only for read-only inspection such as git diff, git log, git show, and `git grep`.
 State clearly when no actionable findings remain and identify residual validation gaps.
+Flag as a finding any comment, scaladoc, or PR text that narrates implementation choices, history, reviews, or rulings instead of explaining the business domain in product words; the owner rule (2026-09-25) is domain-only, terse comments and PR bodies under ~15 lines.

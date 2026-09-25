@@ -81,6 +81,7 @@ Every batch, review, and gate checks these. They are restated in `CLAUDE.md` for
 7. No personal emails, tokens, or credentials in committed files; `.env` gitignored, `.env.example` placeholders only.
 8. **No pull request exceeds 300 changed lines** (additions + deletions, excluding lockfiles, generated artifacts, and `docs/superpowers/**`). Larger stories are delivered as a `gh stack` of dependent PRs, each within the limit, and every story runs in its own git worktree so stacks never share a folder (owner rule 2026-09-25).
 9. Pure domain logic (`domain/`, `engine/`) is free of ZIO and DB code.
+10. Comments explain the business domain only, in product words, tersely; PR bodies stay under ~15 lines (owner rule 2026-09-25). Process narration, rejected alternatives, review history, and rulings live in the SDD ledger, never in code or PR text.
 
 ## Git And GitHub Write Boundaries
 
