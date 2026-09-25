@@ -1,5 +1,6 @@
 package corebanking
 
+import java.time.LocalDate
 import java.util.UUID
 
 import scala.util.{Failure, Try}
@@ -20,6 +21,7 @@ import corebanking.tools.{
   GetAuditLogRequest,
   GetClient,
   GetSystemDate,
+  GetTransactions,
   ListAccounts,
   Ping,
   ToolResponse
@@ -184,3 +186,16 @@ object Server extends McpServerApp[Stdio, Server.type]:
   )
   def listAccounts(clientId: UUID): String =
     connect(transactor)(ListAccounts.response(coreEnv, clientId))
+
+  @Tool(
+    name = Some("get_transactions"),
+    description =
+      Some("Lists an account's transactions, optionally filtered by an inclusive value_date range"),
+    readOnlyHint = Some(true)
+  )
+  def getTransactions(
+      accountId: UUID,
+      startDate: Option[LocalDate] = None,
+      endDate: Option[LocalDate] = None
+  ): String =
+    connect(transactor)(GetTransactions.response(coreEnv, accountId, startDate, endDate))

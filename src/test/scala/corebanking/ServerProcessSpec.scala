@@ -423,5 +423,19 @@ object ServerProcessSpec extends ZIOSpecDefault:
             LoanScheduleEnvelope(env = "sandbox", data = Nil)
           )
         )
+      },
+      test("CORE_ENV=sandbox: get_transactions decodes both with and without optional date args") {
+        for
+          outcome <- runHappyPath()
+          noDatesLine = outcome.stdoutLines.find(_.contains("\"id\":5"))
+          withDatesLine = outcome.stdoutLines.find(_.contains("\"id\":6"))
+        yield assertTrue(
+          noDatesLine.isDefined,
+          withDatesLine.isDefined,
+          // Both calls reach GetTransactions.find and fail there with "no account", not with a
+          // framework-level argument-decoding error — proving Option[LocalDate] round-trips.
+          noDatesLine.get.fromJson[ToolCallResponse].map(_.result.isError) == Right(true),
+          withDatesLine.get.fromJson[ToolCallResponse].map(_.result.isError) == Right(true)
+        )
       }
     ) @@ sequential @@ timeout(2.minutes)
