@@ -50,13 +50,12 @@ object AdvanceDate:
       dryRun: Boolean
   ): String =
     val requestJson = AdvanceDateRequest(days, idempotencyKey, dryRun).toJson
-    val response =
-      if days <= 0 then
-        ToolResponse.respond(env, AdvanceDateError(s"days must be positive, got $days"))
-      else
-        idempotencyKey.flatMap(findReplay(xa, env, _)) match
-          case Some(replayed) => replayed
-          case None => ToolResponse.respond(env, execute(xa, days, dryRun))
+    val response = idempotencyKey.flatMap(findReplay(xa, env, _)) match
+      case Some(replayed) => replayed
+      case None =>
+        if days <= 0 then
+          ToolResponse.respond(env, AdvanceDateError(s"days must be positive, got $days"))
+        else ToolResponse.respond(env, execute(xa, days, dryRun))
     AuditLog.record(
       xa,
       toolName = "advance_date",
