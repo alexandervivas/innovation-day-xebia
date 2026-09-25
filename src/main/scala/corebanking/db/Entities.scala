@@ -6,7 +6,10 @@ import java.util.UUID
 
 import com.augustnagro.magnum.*
 
-/** Maps SQL `DATE` columns (booking date, value date, opened-on, system clock) to `LocalDate`. */
+/**
+ * The calendar date shared by a ledger entry's booking date, value date, opened-on, and system
+ * clock.
+ */
 given localDateCodec: DbCodec[LocalDate] with
   val cols: IArray[Int] = IArray(Types.DATE)
   def readSingle(rs: ResultSet, pos: Int): LocalDate =

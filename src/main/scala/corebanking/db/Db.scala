@@ -6,7 +6,7 @@ import com.augustnagro.magnum.Transactor
 
 import corebanking.config.DbConfig
 
-/** Builds the shared, unpooled `Transactor` every write tool uses against the mock database. */
+/** Builds the database connection every write tool uses. */
 object Db:
   def transactor(config: DbConfig): Transactor =
     val dataSource = new PGSimpleDataSource()

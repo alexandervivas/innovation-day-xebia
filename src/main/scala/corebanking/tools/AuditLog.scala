@@ -4,8 +4,8 @@ import com.augustnagro.magnum.{Transactor, transact}
 import com.augustnagro.magnum.sql
 
 /**
- * Records one `audit_log` row per tool call, in its own transaction, so it survives a dry run's
- * rollback.
+ * Records one `audit_log` row per tool call — even a preview or a rejected call — so nothing goes
+ * unaudited.
  */
 object AuditLog:
   def record(
