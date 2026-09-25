@@ -36,6 +36,8 @@ Core Banking MCP commands
 
 ## Agent Orchestration
 
+Story delivery runs the superpowers SDD pipeline without exception (brainstorming → writing-plans → using-git-worktrees → subagent-driven-development with test-driven-development per task → verification-before-completion → finishing-a-development-branch into a PR); [references/story.md](references/story.md) maps its roles onto the profiles below.
+
 The parent is the delivery lead and an orchestrator, not an implementer. It owns story qualification, scope and architecture decisions, `BACKLOG.md` status, integration, final quality gates, git and GitHub writes, and the report. It edits no production code, migrations, or tests itself; every file-changing batch goes through a worker spawned with a deliberately chosen model.
 
 Delegate to the project subagents under `.claude/agents/`, spawning them with the Agent tool by name:

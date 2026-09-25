@@ -22,3 +22,6 @@ project/project/
 
 # Claude Code settings (but keep .claude/ directory tracked)
 .claude/settings.local.json
+
+# Superpowers SDD scratch (ledgers, briefs, review packages)
+.superpowers/

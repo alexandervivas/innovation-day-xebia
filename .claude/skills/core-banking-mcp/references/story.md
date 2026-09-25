@@ -28,18 +28,29 @@ The title starts with the backlog ID. The issue body is the acceptance-criteria 
 
 ## Start
 
-1. Branch `cb-NN-<slug>` from `origin/main` (`git switch -c cb-NN-<slug> origin/main`). When another story session is active in this checkout, use a sibling worktree instead: `git worktree add ../innovation-day-xebia-cbNN -b cb-NN-<slug> origin/main`, work there, and remove it after merge.
+1. Isolation is mandatory: invoke `superpowers:using-git-worktrees` to create the story workspace as a sibling worktree on branch `cb-NN-<slug>` from `origin/main` (`git worktree add ../innovation-day-xebia-cbNN -b cb-NN-<slug> origin/main`). Never implement in the primary checkout; it stays on `main`.
 2. Set the row's status to `in-progress` in `BACKLOG.md` (parent edit, committed with the story).
-3. Post one concise issue comment naming the branch. Do not repeat it when resuming.
+3. Post one concise issue comment naming the branch and worktree. Do not repeat it when resuming.
 
-## Deliver
+## Deliver — Superpowers SDD, No Exceptions
 
-1. When the path is not obvious, spawn `code-mapper` (explicit `model: sonnet`).
-2. Split the story into bounded write batches. Choose the model per the routing table in SKILL.md and pass it explicitly on every spawn; anything touching money arithmetic, the ledger's append-only paths, `system_clock`, the recalculation engine, or EOD runs on `opus`.
-3. Tests before or alongside implementation: pure domain specs need no database; integration specs run against the compose Postgres (`docker compose up -d`). Order-independence and invariant stories (CB-20, CB-20b, CB-22) use `Gen`-based property tests.
-4. Every new tool: returns the `{env, data}` envelope through `ToolResponse.respond`, accepts `idempotency_key` and `dry_run` if it writes, writes an `audit_log` row, reads time from `system_clock`.
-5. Keep the diff within ~200 changed lines. When it will not fit, stack: finish the first increment, commit, branch the next from it, and say so in each PR body.
-6. `risk-reviewer` (explicit `model: opus`) on the full diff; disposition every finding; rerun after material corrections.
+Every story session runs the superpowers pipeline in this order. Skipping or reordering a step is a process violation; announce each skill as you invoke it.
+
+1. **`superpowers:brainstorming`** — classify the story (most CB stories are *bounded*; CB-13, CB-15a, CB-16/17 are *full* and get a spec file), ask only the questions that matter, present the design, and wait for the owner's approval. The issue body and `CLAUDE.md` invariants are the requirements; `docs/handoff/RecalculationSpec.scala` is the binding spec for CB-15a.
+2. **`superpowers:writing-plans`** — write the plan to `docs/superpowers/plans/YYYY-MM-DD-cb-NN-<slug>.md`: bite-sized TDD tasks, exact files, test commands. Each task names its model per the SKILL.md routing table. Plans are committed with the story and do not count toward the ~200-line budget.
+3. **`superpowers:subagent-driven-development`** — execute the plan in this session: a fresh implementer subagent per task, a task review after each, a whole-branch review at the end. Map the roles to this repository's profiles, always with an explicit `model`:
+   - implementer → `implementation-worker` (or `test-worker` for test-only tasks); each task follows `superpowers:test-driven-development` (failing test first).
+   - task reviewer → `risk-reviewer` on `sonnet` for small mechanical diffs, `opus` for money, ledger, clock, engine, or idempotency diffs.
+   - final whole-branch reviewer → `risk-reviewer` on `opus`.
+   Keep the SDD ledger under `.superpowers/sdd/<plan>/` (git-ignored). Rulings go in the ledger; the four stop conditions (destructive op, security-sensitive action, push/merge/publish, unrecoverable plan) still apply and the push is covered by the standing authorization below.
+4. **`superpowers:verification-before-completion`** — run the gates below yourself and read the output before claiming anything is done.
+5. **`superpowers:finishing-a-development-branch`** — the only allowed outcome is *open a pull request*; never merge from the story session and never discard the branch.
+
+Story-specific rules that hold inside every task:
+
+- Every new tool returns the `{env, data}` envelope through `ToolResponse.respond`, accepts `idempotency_key` and `dry_run` if it writes, writes an `audit_log` row, reads time from `system_clock`.
+- Pure domain and engine code has no ZIO or DB imports; order-independence and invariant stories (CB-20, CB-20b, CB-22) use `Gen`-based property tests.
+- Keep the diff within ~200 changed lines (plans and ledgers excluded). When it will not fit, stack: finish the first increment, commit, branch the next from it, and say so in each PR body.
 
 ## Gates And Publish
 
@@ -55,6 +66,6 @@ git push -u origin cb-NN-<slug>
 gh pr create --title "CB-NN <story> (#N)" --body-file <body>   # body: "Closes #N", acceptance criteria with evidence, model per batch, stack position if stacked
 ```
 
-Then stop: the PR waits for a human review. Never merge an unreviewed PR. When the review arrives, the owner (or the next session) runs `/core-banking-mcp pr <number>`, which addresses every comment and merges once all are addressed (see [pr.md](pr.md)). After the merge: `BACKLOG.md` row to `done` (in the merge session, committed to `main` as a one-line docs commit), delete the branch, remove the worktree if one was used.
+Remove nothing: the worktree stays until the merge session reclaims it. Then stop: the PR waits for a human review. Never merge an unreviewed PR. When the review arrives, the owner (or the next session) runs `/core-banking-mcp pr <number>`, which addresses every comment and merges once all are addressed (see [pr.md](pr.md)). After the merge: `BACKLOG.md` row to `done` (in the merge session, committed to `main` as a one-line docs commit), delete the branch, remove the worktree if one was used.
 
 Report per the Completion Report and name the next story: the lowest open issue whose blockers are all closed.

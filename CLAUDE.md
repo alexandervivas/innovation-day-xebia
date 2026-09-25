@@ -66,6 +66,8 @@ CORE_ENV=production scripts/run-server.sh
 
 ## Key Files for Agents
 
+**Every story session uses the superpowers SDD pipeline, no exceptions:** `/core-banking-mcp story <ref>` runs brainstorming → writing-plans (plan in `docs/superpowers/plans/`) → git worktree → subagent-driven-development with TDD per task → verification → a pull request. Never merge from a story session.
+
 - `BACKLOG.md` — only backlog; GitHub issues mirror it once created
 - `PLAN.md` — timeline and critical path
 - `.claude/agents/` — orchestrator, code-mapper, implementation-worker, test-worker, risk-reviewer
