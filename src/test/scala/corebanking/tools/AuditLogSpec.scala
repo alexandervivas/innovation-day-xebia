@@ -10,7 +10,7 @@ import zio.test.TestAspect.*
 import com.augustnagro.magnum.{sql, transact}
 
 import corebanking.config.{CoreEnv, DbConfig}
-import corebanking.db.{Db, FlywayRunner}
+import corebanking.db.{Db, DryRun, FlywayRunner}
 
 object AuditLogSpec extends ZIOSpecDefault:
 
@@ -76,5 +76,23 @@ object AuditLogSpec extends ZIOSpecDefault:
               dbResponse.fromJson[SampleResponse] == Right(SampleResponse(env = "mock"))
             )
         }
+    },
+    test("commits independently of a surrounding transaction that later rolls back") {
+      ZIO
+        .attempt {
+          val toolName = "cb12_audit_log_rollback_spec_" + java.util.UUID.randomUUID().toString
+          val before = countByToolName(toolName)
+          DryRun(xa, dryRun = true):
+            AuditLog.record(
+              xa,
+              toolName,
+              env = CoreEnv.Mock,
+              requestJson = """{"a":1}""",
+              responseJson = """{"env":"mock","data":{}}"""
+            )
+          val after = countByToolName(toolName)
+          (before, after)
+        }
+        .map { case (before, after) => assertTrue(before == 0, after == 1) }
     }
   ) @@ sequential @@ timeout(1.minute)
