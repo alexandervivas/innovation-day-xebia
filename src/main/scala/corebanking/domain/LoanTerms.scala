@@ -36,10 +36,7 @@ object UserEvent:
       case Disbursement(_, _, _, bookingDate) => bookingDate
       case Repayment(_, _, _, bookingDate) => bookingDate
 
-    /**
-     * Rebuilds the event with some fields replaced, keeping its case. An enum case application is
-     * typed as the enum itself, so the generated case-class `copy` is out of reach here.
-     */
+    /** Rebuilds the event with some fields replaced, keeping its case. */
     def copy(
         id: String = event.id,
         amount: BigDecimal = event.amount,
