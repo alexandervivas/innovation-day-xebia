@@ -10,7 +10,7 @@ import zio.test.TestAspect.*
 import com.augustnagro.magnum.{DbCodec, sql, transact}
 
 import corebanking.config.{CoreEnv, DbConfig}
-import corebanking.db.{Db, FlywayRunner}
+import corebanking.db.{Db, FlywayRunner, SystemClockRow}
 
 object CreateClientSpec extends ZIOSpecDefault:
 
@@ -44,6 +44,23 @@ object CreateClientSpec extends ZIOSpecDefault:
         .head
         .n
 
+  private def clientCountByName(name: String): Long =
+    transact(xa):
+      sql"SELECT COUNT(*) AS n FROM clients WHERE display_name = $name"
+        .query[CountRow]
+        .run()
+        .head
+        .n
+
+  private def systemDate(): String =
+    transact(xa):
+      sql"SELECT current_date_value FROM system_clock WHERE id = true"
+        .query[SystemClockRow]
+        .run()
+        .head
+        .currentDateValue
+        .toString
+
   private def auditCount(marker: String): Long =
     transact(xa):
       sql"SELECT COUNT(*) AS n FROM audit_log WHERE request::text LIKE ${"%" + marker + "%"}"
@@ -73,6 +90,7 @@ object CreateClientSpec extends ZIOSpecDefault:
             decoded.data.name == "Ada Lovelace",
             decoded.data.email == Some("ada@example.com"),
             decoded.data.dryRun == false,
+            decoded.data.openedOn == systemDate(),
             clientCount(decoded.data.id) == 1L
           )
       },
@@ -89,14 +107,18 @@ object CreateClientSpec extends ZIOSpecDefault:
       },
       test("repeated idempotency_key returns the identical result and inserts only once") {
         val key = freshKey()
+        val name = s"Repeat Client ${UUID.randomUUID()}"
+        val before = clientCountByName(name)
         val first = decode(
-          CreateClient.run(xa, CoreEnv.Mock, "Repeat Client", None, Some(key), dryRun = false)
+          CreateClient.run(xa, CoreEnv.Mock, name, None, Some(key), dryRun = false)
         )
         val second = decode(
-          CreateClient.run(xa, CoreEnv.Mock, "Repeat Client", None, Some(key), dryRun = false)
+          CreateClient.run(xa, CoreEnv.Mock, name, None, Some(key), dryRun = false)
         )
         assertTrue(
+          before == 0L,
           first.data.id == second.data.id,
+          clientCountByName(name) == 1L,
           clientCount(first.data.id) == 1L
         )
       },
@@ -123,9 +145,13 @@ object CreateClientSpec extends ZIOSpecDefault:
         val freshAfter = auditCount(fresh)
 
         val repeatedBefore = auditCount(repeated)
-        CreateClient.run(xa, CoreEnv.Mock, repeated, None, Some(key), dryRun = false)
+        val firstResult = decode(
+          CreateClient.run(xa, CoreEnv.Mock, repeated, None, Some(key), dryRun = false)
+        )
         val afterFirstCall = auditCount(repeated)
-        CreateClient.run(xa, CoreEnv.Mock, repeated, None, Some(key), dryRun = false)
+        val repeatedResult = decode(
+          CreateClient.run(xa, CoreEnv.Mock, repeated, None, Some(key), dryRun = false)
+        )
         val afterRepeatedCall = auditCount(repeated)
 
         val dryBefore = auditCount(dry)
@@ -138,6 +164,8 @@ object CreateClientSpec extends ZIOSpecDefault:
           repeatedBefore == 0L,
           afterFirstCall == 1L,
           afterRepeatedCall == 2L,
+          firstResult.data.id == repeatedResult.data.id,
+          clientCountByName(repeated) == 1L,
           dryBefore == 0L,
           dryAfter == 1L
         )
