@@ -43,6 +43,10 @@ object ServerProcessSpec extends ZIOSpecDefault:
       val pb = new ProcessBuilder(javaBin, "-cp", classpath, mainClass)
       val processEnv = pb.environment()
       processEnv.clear()
+      sys.env.foreach {
+        case (k, v) =>
+          if k == "DATABASE_URL" || k.startsWith("POSTGRES_") then processEnv.put(k, v)
+      }
       processEnv.putAll(env.asJava)
       pb.start()
     }
@@ -92,8 +96,11 @@ object ServerProcessSpec extends ZIOSpecDefault:
     """{"jsonrpc":"2.0","method":"notifications/initialized"}"""
   private val pingCallFrame =
     """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ping","arguments":{}}}"""
+  private val getSystemDateCallFrame =
+    """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_system_date","arguments":{}}}"""
 
-  private val frames = Vector(initializeFrame, initializedNotification, pingCallFrame)
+  private val frames =
+    Vector(initializeFrame, initializedNotification, pingCallFrame, getSystemDateCallFrame)
 
   /**
    * Runs the sandbox happy path: writes the handshake frames, holds stdin open ~3s, then closes it.
@@ -138,6 +145,13 @@ object ServerProcessSpec extends ZIOSpecDefault:
     given JsonDecoder[PingEnvelopeData] = DeriveJsonDecoder.gen[PingEnvelopeData]
     given JsonDecoder[PingEnvelope] = DeriveJsonDecoder.gen[PingEnvelope]
 
+  final private case class GetSystemDateEnvelope(env: String, data: GetSystemDateData)
+  final private case class GetSystemDateData(currentDate: String)
+
+  private object GetSystemDateEnvelope:
+    given JsonDecoder[GetSystemDateData] = DeriveJsonDecoder.gen[GetSystemDateData]
+    given JsonDecoder[GetSystemDateEnvelope] = DeriveJsonDecoder.gen[GetSystemDateEnvelope]
+
   def spec: Spec[TestEnvironment & Scope, Any] =
     suite("Server process (CB-02 env guard, process-level)")(
       test("CORE_ENV=production exits 1, logs the FATAL message to stderr, and writes no stdout") {
@@ -156,10 +170,13 @@ object ServerProcessSpec extends ZIOSpecDefault:
           outcome.stdoutBytes.length == 0
         )
       },
-      test("CORE_ENV=sandbox happy path: clean stdio wire and a correctly enveloped ping result") {
+      test(
+        "CORE_ENV=sandbox happy path: clean stdio wire and correctly enveloped ping and get_system_date results"
+      ) {
         for
           outcome <- runHappyPath()
           toolCallLine = outcome.stdoutLines.find(_.contains("\"id\":2"))
+          getSystemDateLine = outcome.stdoutLines.find(_.contains("\"id\":3"))
         yield assertTrue(
           outcome.stdoutLines.nonEmpty,
           outcome.stdoutLines.forall(_.startsWith("{")),
@@ -173,7 +190,18 @@ object ServerProcessSpec extends ZIOSpecDefault:
               env = "sandbox",
               data = PingEnvelopeData(pong = true, server = "core-banking-mcp", version = "0.1.0")
             )
-          )
+          ),
+          getSystemDateLine.isDefined,
+          getSystemDateLine.get
+            .fromJson[ToolCallResponse]
+            .flatMap { response =>
+              response.result.content.headOption
+                .toRight("no content item in tools/call result")
+                .flatMap(_.text.fromJson[GetSystemDateEnvelope])
+            }
+            .exists(env =>
+              env.env == "sandbox" && env.data.currentDate.matches("""\d{4}-\d{2}-\d{2}""")
+            )
         )
       }
     ) @@ sequential @@ timeout(2.minutes)

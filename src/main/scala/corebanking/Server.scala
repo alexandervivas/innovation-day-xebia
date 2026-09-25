@@ -50,9 +50,7 @@ object Server extends McpServerApp[Stdio, Server.type]:
       // Unreachable: halt terminates the JVM immediately. Satisfies the type checker only.
       throw new IllegalStateException("unreachable: halt(1) did not terminate the JVM")
 
-  /**
-   * Mock Postgres connection settings, then every pending migration applied before serving tools.
-   */
+  /** The ledger's shared database connection, ready before any tool call. */
   private val dbConfig: DbConfig = DbConfig.fromEnv()
   FlywayRunner.migrate(dbConfig)
   private val transactor = Db.transactor(dbConfig)
