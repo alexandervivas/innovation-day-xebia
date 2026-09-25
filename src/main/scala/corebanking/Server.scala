@@ -4,7 +4,7 @@ import com.tjclp.fastmcp.{*, given}
 
 import corebanking.config.{CoreEnv, DbConfig}
 import corebanking.db.{Db, FlywayRunner}
-import corebanking.tools.{GetSystemDate, Ping}
+import corebanking.tools.{AdvanceDate, GetSystemDate, Ping}
 
 /**
  * Entry point for the core-banking-mcp server.
@@ -73,3 +73,27 @@ object Server extends McpServerApp[Stdio, Server.type]:
   )
   def getSystemDate(): String =
     GetSystemDate.run(transactor, coreEnv)
+
+  @Tool(
+    name = Some("advance_date"),
+    description = Some(
+      "Advances system_clock forward by the given number of days. A repeated idempotency_key " +
+        "returns the original result unchanged, and dry_run has no effect on that path."
+    ),
+    readOnlyHint = Some(false)
+  )
+  def advanceDate(
+      @Param(description = "Number of days to advance the clock forward; must be positive")
+      days: Int,
+      @Param(
+        description = "Caller-supplied key; a repeated key returns the original result unchanged",
+        required = false
+      )
+      idempotencyKey: Option[String] = None,
+      @Param(
+        description = "When true, computes the result without writing to the database",
+        required = false
+      )
+      dryRun: Boolean = false
+  ): String =
+    AdvanceDate.run(transactor, coreEnv, days, idempotencyKey, dryRun)
