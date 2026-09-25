@@ -138,10 +138,11 @@ object FullReplay extends RecalculationStrategy:
 
           val affectedUserEvents = events.filter(!_.valueDate.isBefore(newTx.valueDate))
 
-          // Only reverses late fees charged between the backdated value date and the last reposted transaction.
-          val windowEnd = affectedUserEvents.map(_.valueDate).maxOption
+          // Only reverses late fees charged between the backdated value date and the last reposted
+          // transaction (or the system date, if nothing is reposted).
+          val windowEnd = affectedUserEvents.map(_.valueDate).maxOption.getOrElse(systemDate)
           val affectedFees = beforeReplay.lateFees.filter { (_, chargedOn) =>
-            !chargedOn.isBefore(newTx.valueDate) && windowEnd.exists(!chargedOn.isAfter(_))
+            !chargedOn.isBefore(newTx.valueDate) && !chargedOn.isAfter(windowEnd)
           }
 
           val reverseSteps = (affectedUserEvents.map(e => (e.id, e.valueDate)) ++ affectedFees)
