@@ -15,10 +15,7 @@ object FullReplay extends RecalculationStrategy:
   /** The replayed position plus the late fees the replay itself charged, with their value dates. */
   private case class ReplayResult(state: LoanState, lateFees: List[(String, LocalDate)])
 
-  /**
-   * Everything the day-by-day replay carries from one day to the next. Threaded through a fold, so
-   * no step can mutate a balance another step still depends on.
-   */
+  /** The loan's running position as the day-by-day replay proceeds. */
   private case class RunningState(
       principal: BigDecimal = BigDecimal(0),
       interestUnpaid: BigDecimal = BigDecimal(0),
@@ -30,20 +27,14 @@ object FullReplay extends RecalculationStrategy:
       lateFees: List[(String, LocalDate)] = Nil
   )
 
-  /**
-   * Splits one repayment in the fixed fees -> interest -> principal order and folds the split back
-   * into the running position.
-   */
+  /** Splits one repayment: fees, then interest, then principal. */
   private def applyRepayment(state: RunningState, id: String, amount: BigDecimal): RunningState =
     val feePay = state.feesCharged.min(amount)
     val afterFees = amount - feePay
 
-    // Zero out the UNROUNDED balance so no fractional cent survives to drift later accrual.
     val interestPayExact = state.interestUnpaid.min(afterFees)
     val interestPayRounded = interestPayExact.setScale(2, BigDecimal.RoundingMode.HALF_UP)
 
-    // Rounding the interest HALF_UP can lift it above what the payment still had left, which would
-    // make the principal allocation negative and grow the outstanding balance. Clamp at zero.
     val afterInterest = (afterFees - interestPayRounded).max(BigDecimal(0))
     val principalPay = state.principal.min(afterInterest)
 
@@ -96,8 +87,7 @@ object FullReplay extends RecalculationStrategy:
       }
     }
 
-    // The oldest installment already due whose cumulative amount the repayments have not covered.
-    // The cumulative total after the n-th installment is exactly n * installmentAmount.
+    // Oldest due installment not yet fully covered — drives days-past-due / arrears.
     val oldestUnpaidDue = installments
       .filterNot(_.dueDate.isAfter(asOf))
       .zipWithIndex
