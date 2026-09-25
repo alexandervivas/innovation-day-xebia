@@ -46,6 +46,9 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
   private val ReversalId1 = "018f3f00-0000-7000-8000-000000000008"
   private val ReversalId2 = "018f3f00-0000-7000-8000-000000000009"
   private val SelfReversalId = "018f3f00-0000-7000-8000-00000000000a"
+  private val ClientId2 = "018f3f00-0000-7000-8000-00000000000b"
+  private val ClientId3 = "018f3f00-0000-7000-8000-00000000000c"
+  private val AccountId2 = "018f3f00-0000-7000-8000-00000000000d"
 
   /** Syntactically valid but never inserted, so any FK pointing at it must be rejected. */
   private val MissingId = "018f3f00-0000-7000-8000-0000000000ff"
@@ -105,6 +108,9 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
 
   /** invalid_text_representation, i.e. a string Postgres cannot parse as the column's type. */
   private val InvalidTextRepresentation = "22P02"
+
+  /** not_null_violation. */
+  private val NotNullViolation = "23502"
 
   /**
    * Runs `sql` under a savepoint and reports whether it was rejected for the *expected* reason,
@@ -352,5 +358,41 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
           case (infinityRejected, negativeInfinityRejected, nanRejected) =>
             assertTrue(infinityRejected, negativeInfinityRejected, nanRejected)
         }
+      },
+      test("clients.idempotency_key is unique: a repeated non-null key is rejected") {
+        withConnection { conn =>
+          conn.setAutoCommit(false)
+          seedLoanAccount(conn)
+          conn
+            .createStatement()
+            .execute(
+              "INSERT INTO clients (id, display_name, opened_on, idempotency_key) " +
+                s"VALUES ('$ClientId2', 'Schema Spec Client 2', CURRENT_DATE, 'schema-spec-client-idem')"
+            )
+          val wasRejected = rejects(
+            conn,
+            "sp_client_idem",
+            "INSERT INTO clients (id, display_name, opened_on, idempotency_key) " +
+              s"VALUES ('$ClientId3', 'Schema Spec Client 3', CURRENT_DATE, 'schema-spec-client-idem')",
+            UniqueViolation
+          )
+          conn.rollback()
+          wasRejected
+        }.map(wasRejected => assertTrue(wasRejected))
+      },
+      test("accounts.currency is required: an account with no currency is rejected") {
+        withConnection { conn =>
+          conn.setAutoCommit(false)
+          seedLoanAccount(conn)
+          val wasRejected = rejects(
+            conn,
+            "sp_currency_required",
+            "INSERT INTO accounts (id, client_id, product_id, kind, opened_on) " +
+              s"VALUES ('$AccountId2', '$ClientId', '$ProductId', 'loan', CURRENT_DATE)",
+            NotNullViolation
+          )
+          conn.rollback()
+          wasRejected
+        }.map(wasRejected => assertTrue(wasRejected))
       }
     ) @@ sequential @@ timeout(1.minute)

@@ -105,7 +105,7 @@ git commit -m "build: add uuid-creator for UUIDv7 id minting (CB-06, #6)"
 
 **Interfaces:**
 - Consumes: nothing (runs against the schema `V1__schema.sql` created).
-- Produces: three new columns Task 7/11 read and write via `Entities.scala`. `V2` is reserved for CB-04's `V2__seed_products.sql` (not yet landed) — this file is `V3` so the two stories never collide on a migration number regardless of merge order.
+- Produces: three new columns Task 7/11 read and write via `Entities.scala`. `V2` is CB-04's `V2__seed_products.sql`, already landed on `main` — this file is `V3` because `V2` was already taken by the time this migration's number was assigned.
 
 **Model:** `sonnet` (schema addition, same class of work as CB-03's migration).
 

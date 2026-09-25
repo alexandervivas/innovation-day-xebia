@@ -23,7 +23,7 @@ This is the **first story to write to Postgres from application code** (CB-03/Fl
 
 ## Schema changes — new migration
 
-`V3__client_email_account_currency.sql` (V2 is reserved for CB-04's `V2__seed_products.sql`, which hasn't landed yet but owns that number):
+`V3__client_email_account_currency.sql` (V2 is CB-04's `V2__seed_products.sql`, already landed on `main` and owning that number):
 
 - `clients.email TEXT NULL` — the issue's `email?` parameter has nowhere to persist today.
 - `clients.idempotency_key TEXT NULL UNIQUE` — mirrors `transactions.idempotency_key`. `create_client` inserts no transaction row, so it needs its own repeat-detection column; a later story (CB-09) can consolidate this if it designs a shared mechanism.
