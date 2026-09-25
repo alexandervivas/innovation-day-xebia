@@ -79,7 +79,7 @@
 
 | ID | Story | Acceptance Criteria | Path | Status |
 |---|---|---|---|---|
-| CB-24 | Design mockups | Claude Design artifacts (outside repo): Timeline UI, Recalculation Diff viewer, Scenario Builder, Audit Log. Screenshots/links in README. | stretch | todo |
+| CB-24 | Design mockups | Claude Design artifacts (outside repo): Timeline UI, Recalculation Diff viewer, Scenario Builder, Audit Log. Screenshots/links in README. | stretch | done |
 | CB-25 | README + docs/demo-script.md | `README.md` with quick start, connection, safety model. `docs/demo-script.md` with grouped prompts (scenario, time travel, backdating, edge cases, QA, safety) ready to paste into Claude. | stretch | todo |
 | CB-26 | Web console | (Stretch) Simple web UI: list clients, view transactions, trigger tools. Connects to same DB. | stretch | todo |
 | CB-27 | Adapter + Bancolombia sandbox stub | (Stretch) Abstract DB layer + adapter for real Bancolombia sandbox API. | stretch | todo |
