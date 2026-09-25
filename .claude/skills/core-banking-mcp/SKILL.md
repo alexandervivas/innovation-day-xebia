@@ -79,12 +79,12 @@ Every batch, review, and gate checks these. They are restated in `CLAUDE.md` for
 5. All write tools accept `idempotency_key` and `dry_run`.
 6. Every tool call is written to `audit_log`.
 7. No personal emails, tokens, or credentials in committed files; `.env` gitignored, `.env.example` placeholders only.
-8. One story ≈ one PR of at most ~200 changed lines, stacked where dependent.
+8. **No pull request exceeds 300 changed lines** (additions + deletions, excluding lockfiles, generated artifacts, and `docs/superpowers/**`). Larger stories are delivered as a `gh stack` of dependent PRs, each within the limit, and every story runs in its own git worktree so stacks never share a folder (owner rule 2026-09-25).
 9. Pure domain logic (`domain/`, `engine/`) is free of ZIO and DB code.
 
 ## Git And GitHub Write Boundaries
 
-- Work on `main` only for `setup`'s initial commit. Every story lives on `cb-NN-<slug>` branched from `origin/main`; stack dependent stories with `gh stack` or plain `--base` chaining.
+- Work on `main` only for `setup`'s initial commit. Every story lives on `cb-NN-<slug>` branched from `origin/main` **in its own sibling worktree** (`../innovation-day-xebia-cbNN`), and is published with `gh stack` (the `github/gh-stack` extension) even when it is a stack of one. Never run two stacks in the same folder.
 - Before every commit run the secret scan and prove it can fail, in one step:
 
   ```bash

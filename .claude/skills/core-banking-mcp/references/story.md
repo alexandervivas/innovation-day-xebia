@@ -37,7 +37,7 @@ The title starts with the backlog ID. The issue body is the acceptance-criteria 
 Every story session runs the superpowers pipeline in this order. Skipping or reordering a step is a process violation; announce each skill as you invoke it.
 
 1. **`superpowers:brainstorming`** — classify the story (most CB stories are *bounded*; CB-13, CB-15a, CB-16/17 are *full*), ask only the questions that matter, and write the outcome to a file: a full spec at `docs/superpowers/specs/YYYY-MM-DD-cb-NN-<slug>.md`, or for a bounded story a short design note at the same path. The issue body and `CLAUDE.md` invariants are the requirements; `docs/handoff/RecalculationSpec.scala` is the binding spec for CB-15a. Then open the **Review Surface** (below) and wait for the owner's approval.
-2. **`superpowers:writing-plans`** — write the plan to `docs/superpowers/plans/YYYY-MM-DD-cb-NN-<slug>.md`: bite-sized TDD tasks, exact files, test commands. Each task names its model per the SKILL.md routing table. Then open the **Review Surface** again (plan plus spec) and wait for the owner's approval before any implementation subagent is dispatched. Specs and plans are committed with the story and do not count toward the ~200-line budget.
+2. **`superpowers:writing-plans`** — write the plan to `docs/superpowers/plans/YYYY-MM-DD-cb-NN-<slug>.md`: bite-sized TDD tasks, exact files, test commands. Each task names its model per the SKILL.md routing table. Then open the **Review Surface** again (plan plus spec) and wait for the owner's approval before any implementation subagent is dispatched. Specs and plans are committed with the story and do not count toward the 300-line PR limit.
 3. **`superpowers:subagent-driven-development`** — execute the plan in this session: a fresh implementer subagent per task, a task review after each, a whole-branch review at the end. Map the roles to this repository's profiles, always with an explicit `model`:
    - implementer → `implementation-worker` (or `test-worker` for test-only tasks); each task follows `superpowers:test-driven-development` (failing test first).
    - task reviewer → `risk-reviewer` on `sonnet` for small mechanical diffs, `opus` for money, ledger, clock, engine, or idempotency diffs.
@@ -67,22 +67,26 @@ Story-specific rules that hold inside every task:
 
 - Every new tool returns the `{env, data}` envelope through `ToolResponse.respond`, accepts `idempotency_key` and `dry_run` if it writes, writes an `audit_log` row, reads time from `system_clock`.
 - Pure domain and engine code has no ZIO or DB imports; order-independence and invariant stories (CB-20, CB-20b, CB-22) use `Gen`-based property tests.
-- Keep the diff within ~200 changed lines (plans and ledgers excluded). When it will not fit, stack: finish the first increment, commit, branch the next from it, and say so in each PR body.
+- **Hard limit: no PR over 300 changed lines** (additions + deletions; lockfiles, generated artifacts, and `docs/superpowers/**` excluded). Plan the split before implementing: partition the plan's tasks into increments that each compile and pass the gates on their own, ordered so an increment depends only on the ones below it. Never split mid-invariant; if a cohesive change truly cannot be divided without leaving an increment red, stop and ask the owner before publishing an oversized PR.
 
-## Gates And Publish
+## Gates And Publish — Always A `gh stack`
 
 ```bash
 sbt -batch scalafmtCheckAll compile test
 scripts/secret-scan.sh --self-test && scripts/secret-scan.sh
 ```
 
-Commit with a Conventional Commit referencing the story and issue (`feat(db): add schema and Flyway migrations (CB-03, #3)`). Set the row to `in-review` in `BACKLOG.md` in the same commit series. Push and open the PR without asking (standing authorization):
+Every story is published as a stack, even a stack of one, from inside its worktree:
 
-```bash
-git push -u origin cb-NN-<slug>
-gh pr create --title "CB-NN <story> (#N)" --body-file <body>   # body: "Closes #N", acceptance criteria with evidence, model per batch, stack position if stacked
-```
+1. `git fetch origin && git rebase origin/main`; resolve conflicts in the branch, rerun the gates.
+2. Initialise the stack once on the story branch: `gh stack init` (targets `main`). For each further increment: commit the current one, then `gh stack add cb-NN-<slug>-<n>-<step>` and continue there. Measure every increment before moving on:
 
-Remove nothing: the worktree stays until the merge session reclaims it. Then stop: the PR waits for a human review. Never merge an unreviewed PR. When the review arrives, the owner (or the next session) runs `/core-banking-mcp pr <number>`, which addresses every comment and merges once all are addressed (see [pr.md](pr.md)). After the merge: `BACKLOG.md` row to `done` (in the merge session, committed to `main` as a one-line docs commit), delete the branch, remove the worktree if one was used.
+   ```bash
+   git diff --shortstat <base>..HEAD -- . ':!docs/superpowers/**' ':!*.lock'   # additions + deletions must be ≤ 300
+   ```
+
+3. Set the row to `in-review` in `BACKLOG.md` in the bottom increment. Commit messages reference the story and issue (`feat(db): add schema and Flyway migrations (CB-03, #3)`).
+4. Publish with `gh stack submit`, which pushes every branch and creates or updates the chain of PRs. Then edit each PR body (`gh pr edit <n> --body-file`): the bottom PR carries `Closes #N`; every PR states its stack position (`Stack 2/3`), links the issue, lists only its own increment's acceptance criteria with evidence and the model per batch.
+5. Stop: the stack waits for a human review. Never merge from the story session. The worktree stays until the merge session reclaims it.
 
 Report per the Completion Report and name the next story: the lowest open issue whose blockers are all closed.

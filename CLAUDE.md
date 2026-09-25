@@ -15,7 +15,7 @@ Lets QA/integration engineers safely test backdated transactions — the hardest
 5. **Write safety**: All write tools accept `idempotency_key` and `dry_run`. Repeated keys return the original result.
 6. **Audit trail**: Every tool call logged to `audit_log`.
 7. **No secrets**: Personal emails, tokens, credentials only in `.env` (gitignored). `.env.example` has placeholders only. Before each commit: `scripts/secret-scan.sh --self-test && scripts/secret-scan.sh`.
-8. **One story ≈ one PR**: Max ~200 changed lines. Stack dependent stories.
+8. **No PR over 300 changed lines** (additions + deletions; `docs/superpowers/**` excluded). Larger stories ship as a `gh stack`; every story runs in its own git worktree so stacks never share a folder.
 9. **Pure domain logic**: `domain/` and `engine/` modules free of ZIO and DB code. Recalculation runs through a `RecalculationStrategy` (FullReplay default, SnapshotReplay opt-in); both must stay pure over domain events.
 
 ## Domain Simplifications
@@ -66,7 +66,7 @@ CORE_ENV=production scripts/run-server.sh
 
 ## Key Files for Agents
 
-**Every story session uses the superpowers SDD pipeline, no exceptions:** `/core-banking-mcp story <ref>` runs brainstorming → writing-plans (plan in `docs/superpowers/plans/`) → git worktree → subagent-driven-development with TDD per task → verification → a pull request. Specs and plans are opened for the owner in VS Code (`code -n <files>`) before asking for approval. Never merge from a story session.
+**Every story session uses the superpowers SDD pipeline, no exceptions:** `/core-banking-mcp story <ref>` runs brainstorming → writing-plans (plan in `docs/superpowers/plans/`) → git worktree → subagent-driven-development with TDD per task → verification → a pull request. Specs and plans are opened for the owner in VS Code (`code -n <files>`) before asking for approval. Never merge from a story session. No PR exceeds 300 changed lines; larger stories ship as a `gh stack`, each story in its own git worktree.
 
 - `BACKLOG.md` — only backlog; GitHub issues mirror it once created
 - `PLAN.md` — timeline and critical path
@@ -77,5 +77,5 @@ CORE_ENV=production scripts/run-server.sh
 
 - Work on `main` only for scaffolding (`CB-01`, `CB-02`); every story on its own `cb-NN-*` branch
 - Secret scan before every commit (pattern must both self-test and find no leaks)
-- Conventional Commits in English; ≤ 200 lines per PR
+- Conventional Commits in English; ≤ 300 changed lines per PR, always via `gh stack` from the story worktree
 - `git push` and `gh pr create` once per session; other GitHub writes need explicit approval

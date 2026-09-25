@@ -89,7 +89,7 @@
 **Notes**:
 - CB-01, CB-02 are in-progress (scaffolding phase).
 - Critical path: CB-01 → CB-13, CB-15 → CB-17, CB-19, CB-24, CB-25. Everything else is stretch.
-- One story = one PR of max ~200 lines.
+- One story = one `gh stack`; no PR over 300 changed lines; each story in its own git worktree.
 - All times from `system_clock` table, never server time.
 - Money as `NUMERIC(18,2)`, never Double.
 - Test with property tests (zio-test + Gen).
