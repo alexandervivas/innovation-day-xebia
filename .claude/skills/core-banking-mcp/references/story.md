@@ -48,13 +48,13 @@ sbt -batch scalafmtCheckAll compile test
 scripts/secret-scan.sh --self-test && scripts/secret-scan.sh
 ```
 
-Commit with a Conventional Commit referencing the story and issue (`feat(db): add schema and Flyway migrations (CB-03, #3)`). Set the row to `in-review` in `BACKLOG.md` in the same commit series. Then, with the owner's push authorization for the session:
+Commit with a Conventional Commit referencing the story and issue (`feat(db): add schema and Flyway migrations (CB-03, #3)`). Set the row to `in-review` in `BACKLOG.md` in the same commit series. Push and open the PR without asking (standing authorization):
 
 ```bash
 git push -u origin cb-NN-<slug>
 gh pr create --title "CB-NN <story> (#N)" --body-file <body>   # body: "Closes #N", acceptance criteria with evidence, model per batch, stack position if stacked
 ```
 
-Merging the PR and closing the issue stay the owner's call. After the merge: `BACKLOG.md` row to `done` (in the next story's PR or a tiny follow-up commit on main), delete the branch, remove the worktree if one was used.
+Then stop: the PR waits for a human review. Never merge an unreviewed PR. When the review arrives, the owner (or the next session) runs `/core-banking-mcp pr <number>`, which addresses every comment and merges once all are addressed (see [pr.md](pr.md)). After the merge: `BACKLOG.md` row to `done` (in the merge session, committed to `main` as a one-line docs commit), delete the branch, remove the worktree if one was used.
 
 Report per the Completion Report and name the next story: the lowest open issue whose blockers are all closed.

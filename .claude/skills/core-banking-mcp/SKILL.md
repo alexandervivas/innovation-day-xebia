@@ -18,6 +18,7 @@ Interpret the first word of the skill arguments as the command:
 - `story <ref>` (`CB-NN`, an issue number, or an issue URL): read [references/story.md](references/story.md) and follow it.
 - `status`: read [references/status.md](references/status.md) and follow it.
 - `review`: run `risk-reviewer` on the current diff against `main`, disposition every finding, and report. Read-only.
+- `pr <number>`: read [references/pr.md](references/pr.md) and follow it: address the human review on that pull request and merge once every comment is addressed.
 - Unknown command: print the help text and name the unknown command. Do not guess.
 
 ## Help
@@ -27,6 +28,7 @@ Core Banking MCP commands
 
 /core-banking-mcp setup            Scaffold the repo, implement CB-01 and CB-02, propose GitHub issues
 /core-banking-mcp story CB-07      Deliver one backlog story as one small PR (also: story 7, story <issue url>)
+/core-banking-mcp pr 12            Address the human review on PR #12; merge when every comment is addressed
 /core-banking-mcp status           Where the day stands: done, in flight, next on the critical path
 /core-banking-mcp review           Risk-review the current diff before commit or PR
 /core-banking-mcp help             Show this help
@@ -87,10 +89,10 @@ Every batch, review, and gate checks these. They are restated in `CLAUDE.md` for
   scripts/secret-scan.sh --self-test && scripts/secret-scan.sh
   ```
 
-  `--self-test` pipes a known fake token through the same pattern and must report a hit; the second call scans the staged tree and must report none. A scan whose self-test does not fire is not a scan. `setup` creates this script; until it exists, run the equivalent `git grep --cached -nIiE` inline.
-- Local commits after green gates are pre-authorized. Conventional Commits, English, one story per commit or a small logical series.
-- `git push` and `gh pr create` need the owner's word once per session; after that they are pre-authorized for the rest of the session.
-- `gh issue create` (the backlog mirror), merging a PR, closing an issue, force-push, and any history rewrite always need the owner's explicit word for that specific action.
+  `--self-test` plants one sample per pattern class and must report every class firing; the second call scans the staged tree and must report `clean` with a non-zero file count. A scan whose self-test does not fire, or that examined zero files, is not a scan.
+- Local commits after green gates, `git push` of the story branch, and `gh pr create` are **standing-authorized** (owner decision 2026-09-25): every story ends with a pull request, never with a merge to `main` from the session. Conventional Commits, English, one story per commit or a small logical series.
+- **Merging is gated on human review** (owner decision 2026-09-25). The agent never merges its own unreviewed PR. The merge is allowed only when the PR has at least one human review, every review comment is addressed per [references/pr.md](references/pr.md), and no review is in `CHANGES_REQUESTED` state. Then the agent merges with squash and the issue closes through `Closes #N`.
+- `gh issue create`, force-push, history rewrites, branch deletion on `main`, and closing an issue by hand always need the owner's explicit word for that specific action.
 
 ## Completion Report
 
@@ -102,4 +104,4 @@ Every command that changes files ends with:
 - Acceptance-criteria evidence and validation commands with results
 - Secret-scan output including the self-test hit
 - Reviewer findings and their disposition
-- What still needs the owner's word (push, PR, issues, merge) and the next story on the critical path
+- PR URL and diff size; review state (awaiting review / comments open / merged) and the next story on the critical path
