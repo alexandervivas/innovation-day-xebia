@@ -43,27 +43,12 @@ object ServerProcessSpec extends ZIOSpecDefault:
       val pb = new ProcessBuilder(javaBin, "-cp", classpath, mainClass)
       val processEnv = pb.environment()
       processEnv.clear()
-      sys.env.foreach {
-        case (k, v) =>
-          if k == "DATABASE_URL" || k.startsWith("POSTGRES_") then processEnv.put(k, v)
-      }
       processEnv.putAll(env.asJava)
       pb.start()
     }
 
   private def readAllBytes(stream: java.io.InputStream): Task[Array[Byte]] =
     ZIO.attemptBlocking(stream.readAllBytes())
-
-  private def readAllLines(stream: java.io.InputStream): Task[Vector[String]] =
-    ZIO.attemptBlocking {
-      val reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))
-      val lines = scala.collection.mutable.ArrayBuffer.empty[String]
-      var line: String = reader.readLine()
-      while line != null do
-        lines += line
-        line = reader.readLine()
-      lines.toVector
-    }
 
   /** Waits up to `processTimeout`; on timeout, forcibly kills the process and fails with "hung". */
   private def awaitExit(proc: Process): Task[Int] =
@@ -96,37 +81,77 @@ object ServerProcessSpec extends ZIOSpecDefault:
     """{"jsonrpc":"2.0","method":"notifications/initialized"}"""
   private val pingCallFrame =
     """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ping","arguments":{}}}"""
+  private def getAuditLogCallFrame(startTime: String): String =
+    s"""{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_audit_log","arguments":{"startTime":"$startTime"}}}"""
   private val getSystemDateCallFrame =
-    """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_system_date","arguments":{}}}"""
+    """{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"get_system_date","arguments":{}}}"""
 
-  private val frames =
-    Vector(initializeFrame, initializedNotification, pingCallFrame, getSystemDateCallFrame)
+  private val dbEnvKeys = Set("DATABASE_URL", "POSTGRES_USER", "POSTGRES_PASSWORD")
 
   /**
-   * Runs the sandbox happy path: writes the handshake frames, holds stdin open ~3s, then closes it.
+   * Runs the sandbox happy path: calls `ping`, `get_audit_log`, and `get_system_date`, and checks
+   * the audit trail recorded the ping.
    */
   private def runHappyPath(): Task[HandshakeOutcome] =
     for
-      proc <- spawn(Map("CORE_ENV" -> "sandbox"))
-      stdoutFiber <- readAllLines(proc.getInputStream).fork
+      proc <- spawn(sys.env.filter((k, _) => dbEnvKeys(k)) ++ Map("CORE_ENV" -> "sandbox"))
       stderrFiber <- readAllBytes(proc.getErrorStream).fork
-      _ <- ZIO.attemptBlocking {
-        val writer = new OutputStreamWriter(proc.getOutputStream, StandardCharsets.UTF_8)
-        frames.foreach { frame =>
-          writer.write(frame)
-          writer.write("\n")
-          writer.flush()
-        }
-      }
-      // Real wall-clock sleep: ZIOSpecDefault's TestClock never advances on its own, and
-      // Live.live(ZIO.sleep) would still add avoidable indirection here.
-      _ <- ZIO.attemptBlocking(Thread.sleep(3000))
-      _ <- ZIO.attemptBlocking(proc.getOutputStream.close())
+      result <- handshake(proc)
+        .timeoutFail(
+          new RuntimeException(s"hung: handshake did not complete within $processTimeout")
+        )(processTimeout)
+        .onError(_ => ZIO.attemptBlocking(proc.destroyForcibly()).ignore)
       exitFiber <- awaitExit(proc).fork
       exitCode <- exitFiber.join
-      stdoutLines <- stdoutFiber.join
       stderrBytes <- stderrFiber.join
-    yield HandshakeOutcome(exitCode, stdoutLines, new String(stderrBytes, StandardCharsets.UTF_8))
+    yield HandshakeOutcome(exitCode, result, new String(stderrBytes, StandardCharsets.UTF_8))
+
+  /** The blocking read/write for one happy-path run. */
+  private def handshake(proc: Process): Task[Vector[String]] =
+    ZIO.attemptBlocking {
+      val reader =
+        new BufferedReader(new InputStreamReader(proc.getInputStream, StandardCharsets.UTF_8))
+      val writer = new OutputStreamWriter(proc.getOutputStream, StandardCharsets.UTF_8)
+      val lines = scala.collection.mutable.ArrayBuffer.empty[String]
+
+      def writeFrame(frame: String): Unit =
+        writer.write(frame)
+        writer.write("\n")
+        writer.flush()
+
+      def readUntil(marker: String): Unit =
+        var found = false
+        while !found do
+          reader.readLine() match
+            case null =>
+              found = true
+            case line =>
+              lines += line
+              if line.contains(marker) then found = true
+
+      val windowStart = java.time.OffsetDateTime.now().toString
+      writeFrame(initializeFrame)
+      writeFrame(initializedNotification)
+      writeFrame(pingCallFrame)
+      readUntil("\"id\":2")
+
+      writeFrame(getAuditLogCallFrame(windowStart))
+      readUntil("\"id\":3")
+
+      writeFrame(getSystemDateCallFrame)
+      readUntil("\"id\":4")
+
+      proc.getOutputStream.close()
+
+      // Drains any remaining output to EOF so "every stdout line is JSON" covers the whole
+      // stream, not just up to the last frame this test sends.
+      var trailing = reader.readLine()
+      while trailing != null do
+        lines += trailing
+        trailing = reader.readLine()
+
+      lines.toVector
+    }
 
   // Minimal JSON-RPC response shapes, matching only the fields this spec needs to decode.
   final private case class ContentItem(`type`: String, text: String)
@@ -144,6 +169,21 @@ object ServerProcessSpec extends ZIOSpecDefault:
   private object PingEnvelope:
     given JsonDecoder[PingEnvelopeData] = DeriveJsonDecoder.gen[PingEnvelopeData]
     given JsonDecoder[PingEnvelope] = DeriveJsonDecoder.gen[PingEnvelope]
+
+  final private case class AuditEntryDecoded(
+      id: Long,
+      toolName: String,
+      calledAt: String,
+      env: String,
+      request: Option[String],
+      response: Option[String],
+      dryRunFlag: Boolean
+  )
+  final private case class AuditEnvelope(env: String, data: List[AuditEntryDecoded])
+
+  private object AuditEnvelope:
+    given JsonDecoder[AuditEntryDecoded] = DeriveJsonDecoder.gen[AuditEntryDecoded]
+    given JsonDecoder[AuditEnvelope] = DeriveJsonDecoder.gen[AuditEnvelope]
 
   final private case class GetSystemDateEnvelope(env: String, data: GetSystemDateData)
   final private case class GetSystemDateData(currentDate: String)
@@ -171,17 +211,18 @@ object ServerProcessSpec extends ZIOSpecDefault:
         )
       },
       test(
-        "CORE_ENV=sandbox happy path: clean stdio wire and correctly enveloped ping and get_system_date results"
+        "CORE_ENV=sandbox happy path: clean stdio wire, ping/get_audit_log/get_system_date results, and proof the ping call was audited"
       ) {
         for
           outcome <- runHappyPath()
-          toolCallLine = outcome.stdoutLines.find(_.contains("\"id\":2"))
-          getSystemDateLine = outcome.stdoutLines.find(_.contains("\"id\":3"))
+          pingLine = outcome.stdoutLines.find(_.contains("\"id\":2"))
+          auditLine = outcome.stdoutLines.find(_.contains("\"id\":3"))
+          getSystemDateLine = outcome.stdoutLines.find(_.contains("\"id\":4"))
         yield assertTrue(
           outcome.stdoutLines.nonEmpty,
           outcome.stdoutLines.forall(_.startsWith("{")),
-          toolCallLine.isDefined,
-          toolCallLine.get.fromJson[ToolCallResponse].flatMap { response =>
+          pingLine.isDefined,
+          pingLine.get.fromJson[ToolCallResponse].flatMap { response =>
             response.result.content.headOption
               .toRight("no content item in tools/call result")
               .flatMap(_.text.fromJson[PingEnvelope])
@@ -191,6 +232,15 @@ object ServerProcessSpec extends ZIOSpecDefault:
               data = PingEnvelopeData(pong = true, server = "core-banking-mcp", version = "0.1.0")
             )
           ),
+          auditLine.isDefined,
+          auditLine.get
+            .fromJson[ToolCallResponse]
+            .flatMap { response =>
+              response.result.content.headOption
+                .toRight("no content item in tools/call result")
+                .flatMap(_.text.fromJson[AuditEnvelope])
+            }
+            .map(_.data.exists(_.toolName == "ping")) == Right(true),
           getSystemDateLine.isDefined,
           getSystemDateLine.get
             .fromJson[ToolCallResponse]

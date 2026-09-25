@@ -1,10 +1,24 @@
 package corebanking
 
+import scala.util.{Failure, Try}
+import scala.util.control.NonFatal
+
 import com.tjclp.fastmcp.{*, given}
+import zio.json.*
 
 import corebanking.config.{CoreEnv, DbConfig}
 import corebanking.db.{Db, FlywayRunner}
-import corebanking.tools.{AdvanceDate, GetSystemDate, Ping}
+import corebanking.tools.{
+  AdvanceDate,
+  AuditedFailure,
+  AuditLog,
+  AuditLogSummary,
+  GetAuditLog,
+  GetAuditLogRequest,
+  GetSystemDate,
+  Ping,
+  ToolResponse
+}
 
 /**
  * Entry point for the core-banking-mcp server.
@@ -63,8 +77,29 @@ object Server extends McpServerApp[Stdio, Server.type]:
     description = Some("Liveness check; returns the current core environment"),
     readOnlyHint = Some(true)
   )
-  def ping(): String =
-    Ping.response(coreEnv, version)
+  def ping(): Try[String] =
+    Try(Ping.response(coreEnv, version))
+      .map { response =>
+        AuditLog.record(
+          transactor,
+          toolName = "ping",
+          env = coreEnv,
+          requestJson = "{}",
+          responseJson = response
+        )
+        response
+      }
+      .recoverWith {
+        case NonFatal(error) =>
+          AuditLog.record(
+            transactor,
+            toolName = "ping",
+            env = coreEnv,
+            requestJson = "{}",
+            responseJson = AuditedFailure(error.getMessage).toJson
+          )
+          Failure(error)
+      }
 
   @Tool(
     name = Some("get_system_date"),
@@ -97,3 +132,34 @@ object Server extends McpServerApp[Stdio, Server.type]:
       dryRun: Boolean = false
   ): String =
     AdvanceDate.run(transactor, coreEnv, days, idempotencyKey, dryRun)
+
+  @Tool(
+    name = Some("get_audit_log"),
+    description =
+      Some("Reads audit log history, optionally bounded by an ISO-8601 called_at window"),
+    readOnlyHint = Some(true)
+  )
+  def getAuditLog(startTime: Option[String], endTime: Option[String]): Try[String] =
+    val requestJson = GetAuditLogRequest(startTime, endTime).toJson
+    Try(GetAuditLog.run(transactor, startTime, endTime))
+      .map { entries =>
+        AuditLog.record(
+          transactor,
+          toolName = "get_audit_log",
+          env = coreEnv,
+          requestJson = requestJson,
+          responseJson = AuditLogSummary(entries.size, startTime, endTime).toJson
+        )
+        ToolResponse.respond(coreEnv, entries)
+      }
+      .recoverWith {
+        case NonFatal(error) =>
+          AuditLog.record(
+            transactor,
+            toolName = "get_audit_log",
+            env = coreEnv,
+            requestJson = requestJson,
+            responseJson = AuditedFailure(error.getMessage).toJson
+          )
+          Failure(error)
+      }
