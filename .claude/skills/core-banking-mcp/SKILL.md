@@ -7,7 +7,7 @@ description: Use when working in the innovation-day-xebia repository on the core
 
 Innovation Day project at Xebia: an MCP server that lets QA/integration engineers generate test data, time-travel, and safely test backdated transactions against a core-banking mock. One-day budget: optimise for a working demo. Everything in English.
 
-`BACKLOG.md` is the only backlog and holds story status; GitHub issues mirror it once the owner approves their creation. `PLAN.md` holds the timeline and critical path. `CLAUDE.md` holds the condensed rules for every session.
+`BACKLOG.md` is the only backlog and holds story status; GitHub issues #1–#31 mirror it one-to-one (title starts with the backlog ID) and carry the native blocked-by dependencies. Issue bodies are the acceptance-criteria record; the backlog row is the status record. `PLAN.md` holds the timeline and critical path. `CLAUDE.md` holds the condensed rules for every session.
 
 ## Route The Command
 
@@ -15,7 +15,7 @@ Interpret the first word of the skill arguments as the command:
 
 - No command or `help`: print the help text below and stop.
 - `setup`: read [references/setup.md](references/setup.md) and follow it.
-- `story CB-NN`: read [references/story.md](references/story.md) and follow it.
+- `story <ref>` (`CB-NN`, an issue number, or an issue URL): read [references/story.md](references/story.md) and follow it.
 - `status`: read [references/status.md](references/status.md) and follow it.
 - `review`: run `risk-reviewer` on the current diff against `main`, disposition every finding, and report. Read-only.
 - Unknown command: print the help text and name the unknown command. Do not guess.
@@ -26,7 +26,7 @@ Interpret the first word of the skill arguments as the command:
 Core Banking MCP commands
 
 /core-banking-mcp setup            Scaffold the repo, implement CB-01 and CB-02, propose GitHub issues
-/core-banking-mcp story CB-07      Deliver one backlog story as one small PR
+/core-banking-mcp story CB-07      Deliver one backlog story as one small PR (also: story 7, story <issue url>)
 /core-banking-mcp status           Where the day stands: done, in flight, next on the critical path
 /core-banking-mcp review           Risk-review the current diff before commit or PR
 /core-banking-mcp help             Show this help
