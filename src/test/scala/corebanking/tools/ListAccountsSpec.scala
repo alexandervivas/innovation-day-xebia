@@ -22,6 +22,7 @@ object ListAccountsSpec extends ZIOSpecDefault:
   private val AccountId = UUID.fromString("018f3f00-0000-7000-8000-0000000000b4")
   private val TxPastId = UUID.fromString("018f3f00-0000-7000-8000-0000000000b5")
   private val TxFutureId = UUID.fromString("018f3f00-0000-7000-8000-0000000000b6")
+  private val NoTxAccountId = UUID.fromString("018f3f00-0000-7000-8000-0000000000b7")
   private val MissingClientId = UUID.fromString("018f3f00-0000-7000-8000-0000000000ff")
 
   private def seedFixture()(using DbCon): Unit =
@@ -33,6 +34,9 @@ object ListAccountsSpec extends ZIOSpecDefault:
       .run()
     sql"INSERT INTO accounts (id, client_id, product_id, kind, opened_on) VALUES ($AccountId, $ClientId, $ProductId, 'savings', DATE '2026-01-05')".update
       .run()
+    // No transactions posted yet: balance must be zero, not null.
+    sql"INSERT INTO accounts (id, client_id, product_id, kind, opened_on) VALUES ($NoTxAccountId, $ClientId, $ProductId, 'savings', DATE '2026-01-20')".update
+      .run()
     // Effective today: counted in the balance.
     sql"INSERT INTO transactions (id, account_id, type, amount, booking_date, value_date, idempotency_key) VALUES ($TxPastId, $AccountId, 'deposit', 100.00, DATE '2026-01-06', DATE '2026-01-06', 'list-accounts-past')".update
       .run()
@@ -42,7 +46,9 @@ object ListAccountsSpec extends ZIOSpecDefault:
       .run()
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("ListAccounts")(
-    test("find returns one account per client with balance limited to value_date <= system_clock") {
+    test(
+      "find returns each of a client's accounts with balance limited to value_date <= system_clock"
+    ) {
       ZIO.attemptBlocking(FlywayRunner.migrate(config)) *>
         ZIO
           .attemptBlocking {
@@ -60,6 +66,13 @@ object ListAccountsSpec extends ZIOSpecDefault:
                   kind = "savings",
                   openedOn = LocalDate.parse("2026-01-05"),
                   balance = BigDecimal("100.00")
+                ),
+                AccountData(
+                  id = NoTxAccountId.toString,
+                  productId = ProductId.toString,
+                  kind = "savings",
+                  openedOn = LocalDate.parse("2026-01-20"),
+                  balance = BigDecimal("0.00")
                 )
               )
             )
