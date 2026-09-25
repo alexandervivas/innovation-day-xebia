@@ -26,5 +26,17 @@ object DbSpec extends ZIOSpecDefault:
             }
           }
           .map(rows => assertTrue(rows.size == 1))
+    },
+    test("binds a LocalDate parameter (writeSingle) and decodes it back exactly (readSingle)") {
+      val boundDate = java.time.LocalDate.of(2026, 9, 25)
+      ZIO.attemptBlocking(FlywayRunner.migrate(config)) *>
+        ZIO
+          .attemptBlocking {
+            val xa = Db.transactor(config)
+            connect(xa) {
+              sql"SELECT $boundDate".query[java.time.LocalDate].run()
+            }
+          }
+          .map(rows => assertTrue(rows == Vector(boundDate)))
     }
   ) @@ TestAspect.timeout(30.seconds)

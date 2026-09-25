@@ -13,7 +13,7 @@ breakdown. All read from `system_clock`, not server clock.
 
 - **First DB read layer on `main`**: no tool on `main` touches Postgres yet (only `ping`). This
   story adds it: `db/Db.scala` (magnum `Transactor`, `PGSimpleDataSource`, unpooled — single-reader
-  mock server) and `db/Entities.scala` (magnum row types + the `LocalDate` codec).
+  mock server) and `db/Codecs.scala` (magnum row types + the `LocalDate` codec).
 - **Parallel-lane collision, expected**: CB-06 (unmerged, its own worktree, itself stale relative to
   `main`) independently built its own `db/Db.scala` and `db/Entities.scala` for its write path.
   `PLAN.md`'s Lane A (CB-03→04→05) and Lane B (CB-06→...) are explicitly meant to run concurrently;
@@ -48,7 +48,7 @@ breakdown. All read from `system_clock`, not server clock.
 - **`domain/Schedule.scala`**: add `InstallmentBreakdown(seq, dueDate, amountDue, interest,
   principal)` and `amortizationBreakdown(...)` — pure, ZIO/DB-free (rule 9), unit-tested directly.
 - **`db/Db.scala`**: `Db.transactor(config: DbConfig): Transactor`.
-- **`db/Entities.scala`**: magnum row types for `clients`, `accounts`, `loans`, `installments`,
+- **`db/Codecs.scala`**: magnum row types for `clients`, `accounts`, `loans`, `installments`,
   `transactions`, `system_clock` (read-only projections — only the columns these tools need), plus
   the shared `LocalDate` codec.
 - **`tools/GetClient.scala`, `tools/ListAccounts.scala`, `tools/GetTransactions.scala`,
