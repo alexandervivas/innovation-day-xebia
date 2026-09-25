@@ -6,7 +6,7 @@ An MCP server that lets QA/integration engineers generate test data, time-travel
 
 ## Quick Start
 
-**Prerequisites**: JDK 21, sbt, Docker (or Postgres 16 elsewhere).
+**Prerequisites**: JDK 21, sbt, Docker (or Postgres 18 elsewhere).
 
 ```bash
 # Start the Postgres database
