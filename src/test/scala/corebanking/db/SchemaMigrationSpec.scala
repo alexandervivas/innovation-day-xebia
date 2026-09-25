@@ -83,8 +83,8 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
         s"VALUES ('$ClientId', 'Schema Spec Client', CURRENT_DATE)"
     )
     stmt.execute(
-      "INSERT INTO accounts (id, client_id, product_id, kind, opened_on) " +
-        s"VALUES ('$AccountId', '$ClientId', '$ProductId', 'loan', CURRENT_DATE)"
+      "INSERT INTO accounts (id, client_id, product_id, kind, opened_on, currency) " +
+        s"VALUES ('$AccountId', '$ClientId', '$ProductId', 'loan', CURRENT_DATE, 'COP')"
     )
     stmt.execute(
       "INSERT INTO transactions (id, account_id, type, amount, booking_date, value_date, idempotency_key) " +
@@ -170,8 +170,8 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
           val wasRejected = rejects(
             conn,
             "sp_fk_client",
-            "INSERT INTO accounts (id, client_id, product_id, kind, opened_on) " +
-              s"VALUES ('$OrphanAccountId', '$MissingId', '$ProductId', 'loan', CURRENT_DATE)",
+            "INSERT INTO accounts (id, client_id, product_id, kind, opened_on, currency) " +
+              s"VALUES ('$OrphanAccountId', '$MissingId', '$ProductId', 'loan', CURRENT_DATE, 'COP')",
             ForeignKeyViolation
           )
           conn.rollback()
