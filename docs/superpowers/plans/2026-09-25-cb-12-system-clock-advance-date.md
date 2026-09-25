@@ -636,6 +636,20 @@ object AdvanceDateSpec extends ZIOSpecDefault:
       AdvanceDate.run(xa, CoreEnv.Mock, days = 1, idempotencyKey = Some(key), dryRun = false)
       val afterSecondCall = auditCount("advance_date")
       assertTrue(afterFirstCall == beforeCount + 1, afterSecondCall == beforeCount + 2)
+    },
+    test("a dry_run call does not poison a later real call with the same idempotency_key") {
+      val key = UUID.randomUUID().toString
+      val before = rawCurrentDate()
+      val dryJson = AdvanceDate.run(xa, CoreEnv.Mock, days = 7, idempotencyKey = Some(key), dryRun = true)
+      val afterDry = rawCurrentDate()
+      val realJson = AdvanceDate.run(xa, CoreEnv.Mock, days = 7, idempotencyKey = Some(key), dryRun = false)
+      val afterReal = rawCurrentDate()
+      assertTrue(
+        afterDry == before,
+        afterReal == before.plusDays(7),
+        dryJson.fromJson[DecodedEnvelope].map(_.data.dryRun) == Right(true),
+        realJson.fromJson[DecodedEnvelope].map(_.data.dryRun) == Right(false)
+      )
     }
   ) @@ sequential @@ timeout(1.minute)
 ```
@@ -706,13 +720,15 @@ object AdvanceDate:
     )
     response
 
-  /** Most recent stored response for a matching key, or `None` on a first-time key. */
+  /** Most recent stored response from a prior real (non-dry-run) call for a matching key — a dry run never establishes a replay baseline. */
   private def findReplay(xa: Transactor, key: String): Option[String] =
     transact(xa):
       sql"""
         SELECT response::text
         FROM audit_log
-        WHERE tool_name = 'advance_date' AND request ->> 'idempotencyKey' = $key
+        WHERE tool_name = 'advance_date'
+          AND request ->> 'idempotencyKey' = $key
+          AND request ->> 'dryRun' = 'false'
         ORDER BY id DESC
         LIMIT 1
       """.query[String].run().headOption
