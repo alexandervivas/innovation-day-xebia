@@ -31,7 +31,7 @@ object OrderIndependenceSpec extends ZIOSpecDefault:
 
   private val threeBackdatedTxns = List(txDay5, txDay3, txDay7)
 
-  /** The position the engine reports once all the repayments are posted in `order`. */
+  /** The loan's outstanding position once all three repayments are posted, in `order`. */
   private def postInOrder(order: List[UserEvent]): LoanState =
     val (_, finalState) = order.foldLeft((baseHistory, Option.empty[LoanState])) {
       case ((events, _), tx) =>
