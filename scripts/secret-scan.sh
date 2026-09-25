@@ -15,8 +15,20 @@ set -euo pipefail
 #     env- or YAML-style (key=value or key: value)
 #
 # A placeholder allowlist is applied after matching so known-safe placeholders
-# (change-me, <angle-bracket-placeholder>, example.com, your-*-here,
-# ${VAR} / ${VAR:-default}) never get reported as findings.
+# (change-me, other-pass, env.getOrElse(key, <bare-identifier>) reads, <angle-bracket-placeholder>,
+# example.com, your-*-here, ${VAR} / ${VAR:-default}) never get reported as findings. The
+# env.getOrElse allowlist entry requires the default argument to be a bare identifier (not a
+# quoted literal), so a hardcoded secret passed as that default — e.g.
+# env.getOrElse("POSTGRES_PASSWORD", "a-real-password") — is still reported. A prior `: String`
+# type-annotation allowlist entry was removed: because filter_allowlist drops a whole LINE when
+# any part of it matches, that entry suppressed a real secret sharing a line with unrelated
+# `X: String)`/`X: String,` text anywhere else on the line (e.g. a trailing comment) — a wider
+# hole than the narrow markdown-prose false positive it was added for. That original false
+# positive (a Scala type signature quoted in `docs/superpowers/plans/**` prose, where the closing
+# backtick right after `String)` extends the match past real source code's usual line break) is
+# handled by excluding that directory instead — real .scala/.sql source never hits it, since a
+# bare `password: String` with nothing non-whitespace immediately after is too short to match
+# PATTERN's `{8,}` minimum in the first place.
 #
 # Usage:
 #   scripts/secret-scan.sh --self-test    # Verify every pattern class fires, and placeholders don't
@@ -35,11 +47,14 @@ PATTERN+='|bearer[[:space:]]+[A-Za-z0-9._-]{20,}'
 PATTERN+='|://[^/:@[:space:]]+:[^@[:space:]]+@'
 PATTERN+='|(password|passwd|pwd|secret|token|api_key|apikey)[A-Za-z0-9_]*[[:space:]]*[=:][[:space:]]*["'"'"']?[^"'"'"'[:space:]]{8,}'
 
-ALLOWLIST='(change-me|changeme|<[A-Za-z_-]+>|example\.com|your-[a-z-]+-here|\$\{[A-Za-z_]+(:-[^}]*)?\})'
+ALLOWLIST='(change-me|changeme|other-pass|env\.getOrElse\([^)]*,[[:space:]]*[A-Za-z_][A-Za-z0-9_]*\)|<[A-Za-z_-]+>|example\.com|your-[a-z-]+-here|\$\{[A-Za-z_]+(:-[^}]*)?\})'
 
 # Exclusions shared by index and head scans: the scanner script itself (it contains the
-# patterns as literal text) and .claude/ (agent prompts legitimately mention "token", etc).
-EXCLUDE_PATHSPECS=(':!scripts/secret-scan.sh' ':!.claude/**')
+# patterns as literal text), .claude/ (agent prompts legitimately mention "token", etc), and
+# docs/superpowers/plans/ (process docs that quote code signatures/tests in prose, never real
+# credentials — see the ALLOWLIST comment above for why a path exclusion is safer here than a
+# content allowlist entry would be).
+EXCLUDE_PATHSPECS=(':!scripts/secret-scan.sh' ':!.claude/**' ':!docs/superpowers/plans/**')
 
 # Removes allowlisted (known-safe placeholder) lines from stdin.
 filter_allowlist() {
@@ -93,6 +108,8 @@ if [[ "${1:-}" == "--self-test" ]]; then
         'POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}'
         "DATABASE_URL=jdbc:postgresql://localhost:5432/corebanking"
         'token: ${GITHUB_TOKEN}'
+        'password = env.getOrElse("POSTGRES_PASSWORD", defaultPassword)'
+        'password = "other-pass"'
     )
 
     for sample in "${NEGATIVE_SAMPLES[@]}"; do
@@ -102,6 +119,28 @@ if [[ "${1:-}" == "--self-test" ]]; then
         else
             echo "self-test FAILED: negative unexpectedly fired: $sample" >&2
             FAILURES+=("negative: $sample")
+        fi
+    done
+
+    # A hardcoded secret disguised as an env.getOrElse(...) default must still be reported: the
+    # env.getOrElse allowlist entry only exempts a *bare-identifier* default, never a quoted
+    # literal, so this must survive both PATTERN and the allowlist filter.
+    # A real secret sharing a line with unrelated `X: String)`/`X: String,` text must also still
+    # be reported (Copilot review on PR #32 found the prior `: String` allowlist entry suppressed
+    # this — filter_allowlist drops a whole line on any match, so that entry was a same-line
+    # bypass for any secret co-located with an unrelated type annotation or trailing comment).
+    declare -a ALLOWLIST_SURVIVES_SAMPLES=(
+        'password = env.getOrElse("POSTGRES_PASSWORD", "hunter2SuperSecret")'
+        'password = "aB3dE5fG7h9K" // an unrelated note: String) elsewhere on this line'
+    )
+
+    for sample in "${ALLOWLIST_SURVIVES_SAMPLES[@]}"; do
+        SURVIVING=$(echo "$sample" | grep -iE "$PATTERN" 2>/dev/null | filter_allowlist || true)
+        if [[ -n "$SURVIVING" ]]; then
+            echo "self-test: disguised secret '$sample' still fires (OK)"
+        else
+            echo "self-test FAILED: disguised secret was allowlisted away: $sample" >&2
+            FAILURES+=("allowlist-survives: $sample")
         fi
     done
 
