@@ -72,17 +72,36 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
         "VALUES ('schema-spec-tx', 'schema-spec-account', 'disbursement', 100.00, CURRENT_DATE, CURRENT_DATE, 'schema-spec-idem')"
     )
 
+  /** A plain `RAISE EXCEPTION` in plpgsql, i.e. one of this schema's own guard triggers. */
+  private val RaiseException = "P0001"
+
+  /** foreign_key_violation. */
+  private val ForeignKeyViolation = "23503"
+
+  /** unique_violation. */
+  private val UniqueViolation = "23505"
+
+  /** check_violation. */
+  private val CheckViolation = "23514"
+
   /**
-   * Runs `sql` under a savepoint and reports whether it raised a SQLException, rolling back to the
-   * savepoint either way so the connection stays usable for the next assertion.
+   * Runs `sql` under a savepoint and reports whether it was rejected for the *expected* reason,
+   * rolling back to the savepoint either way so the connection stays usable for the next assertion.
+   * Matching on SQLSTATE rather than on "any SQLException" is what stops this suite from staying
+   * green if a constraint is ever lost and some unrelated error throws in its place.
    */
-  private def rejects(conn: Connection, savepointName: String, sql: String): Boolean =
+  private def rejects(
+      conn: Connection,
+      savepointName: String,
+      sql: String,
+      expectedSqlState: String
+  ): Boolean =
     val savepoint = conn.setSavepoint(savepointName)
     val wasRejected =
       try
         conn.createStatement().execute(sql)
         false
-      catch case _: SQLException => true
+      catch case e: SQLException => e.getSQLState == expectedSqlState
     conn.rollback(savepoint)
     wasRejected
 
@@ -101,7 +120,8 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
           val wasRejected = rejects(
             conn,
             "sp_update",
-            "UPDATE transactions SET amount = amount WHERE id = 'schema-spec-tx'"
+            "UPDATE transactions SET amount = amount WHERE id = 'schema-spec-tx'",
+            RaiseException
           )
           conn.rollback()
           wasRejected
@@ -114,7 +134,8 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
           val wasRejected = rejects(
             conn,
             "sp_delete",
-            "DELETE FROM transactions WHERE id = 'schema-spec-tx'"
+            "DELETE FROM transactions WHERE id = 'schema-spec-tx'",
+            RaiseException
           )
           conn.rollback()
           wasRejected
@@ -128,7 +149,8 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
             conn,
             "sp_fk_client",
             "INSERT INTO accounts (id, client_id, product_id, kind, opened_on) " +
-              "VALUES ('schema-spec-orphan', 'does-not-exist', 'schema-spec-product', 'loan', CURRENT_DATE)"
+              "VALUES ('schema-spec-orphan', 'does-not-exist', 'schema-spec-product', 'loan', CURRENT_DATE)",
+            ForeignKeyViolation
           )
           conn.rollback()
           wasRejected
@@ -142,7 +164,8 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
             conn,
             "sp_idem",
             "INSERT INTO transactions (id, account_id, type, amount, booking_date, value_date, idempotency_key) " +
-              "VALUES ('schema-spec-tx-2', 'schema-spec-account', 'repayment', 10.00, CURRENT_DATE, CURRENT_DATE, 'schema-spec-idem')"
+              "VALUES ('schema-spec-tx-2', 'schema-spec-account', 'repayment', 10.00, CURRENT_DATE, CURRENT_DATE, 'schema-spec-idem')",
+            UniqueViolation
           )
           conn.rollback()
           wasRejected
@@ -156,7 +179,8 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
             conn,
             "sp_reverses",
             "INSERT INTO transactions (id, account_id, type, amount, booking_date, value_date, reverses_id, idempotency_key) " +
-              "VALUES ('schema-spec-tx-3', 'schema-spec-account', 'reversal', 100.00, CURRENT_DATE, CURRENT_DATE, 'does-not-exist', 'schema-spec-idem-2')"
+              "VALUES ('schema-spec-tx-3', 'schema-spec-account', 'reversal', 100.00, CURRENT_DATE, CURRENT_DATE, 'does-not-exist', 'schema-spec-idem-2')",
+            ForeignKeyViolation
           )
           conn.rollback()
           wasRejected
@@ -168,7 +192,71 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
           val wasRejected = rejects(
             conn,
             "sp_clock",
-            "INSERT INTO system_clock (current_date_value) VALUES ('2020-01-01')"
+            "INSERT INTO system_clock (current_date_value) VALUES ('2020-01-01')",
+            UniqueViolation
+          )
+          conn.rollback()
+          wasRejected
+        }.map(wasRejected => assertTrue(wasRejected))
+      },
+      test("transactions is append-only: TRUNCATE is rejected") {
+        withConnection { conn =>
+          conn.setAutoCommit(false)
+          seedLoanAccount(conn)
+          val wasRejected = rejects(
+            conn,
+            "sp_truncate",
+            "TRUNCATE transactions",
+            RaiseException
+          )
+          conn.rollback()
+          wasRejected
+        }.map(wasRejected => assertTrue(wasRejected))
+      },
+      test("a transaction can be reversed only once: a second reversal is rejected") {
+        withConnection { conn =>
+          conn.setAutoCommit(false)
+          seedLoanAccount(conn)
+          conn
+            .createStatement()
+            .execute(
+              "INSERT INTO transactions (id, account_id, type, amount, booking_date, value_date, reverses_id, idempotency_key) " +
+                "VALUES ('schema-spec-rev-1', 'schema-spec-account', 'reversal', 100.00, CURRENT_DATE, CURRENT_DATE, 'schema-spec-tx', 'schema-spec-idem-rev-1')"
+            )
+          val wasRejected = rejects(
+            conn,
+            "sp_double_reversal",
+            "INSERT INTO transactions (id, account_id, type, amount, booking_date, value_date, reverses_id, idempotency_key) " +
+              "VALUES ('schema-spec-rev-2', 'schema-spec-account', 'reversal', 100.00, CURRENT_DATE, CURRENT_DATE, 'schema-spec-tx', 'schema-spec-idem-rev-2')",
+            UniqueViolation
+          )
+          conn.rollback()
+          wasRejected
+        }.map(wasRejected => assertTrue(wasRejected))
+      },
+      test("a transaction cannot reverse itself") {
+        withConnection { conn =>
+          conn.setAutoCommit(false)
+          seedLoanAccount(conn)
+          val wasRejected = rejects(
+            conn,
+            "sp_self_reversal",
+            "INSERT INTO transactions (id, account_id, type, amount, booking_date, value_date, reverses_id, idempotency_key) " +
+              "VALUES ('schema-spec-self', 'schema-spec-account', 'reversal', 100.00, CURRENT_DATE, CURRENT_DATE, 'schema-spec-self', 'schema-spec-idem-self')",
+            CheckViolation
+          )
+          conn.rollback()
+          wasRejected
+        }.map(wasRejected => assertTrue(wasRejected))
+      },
+      test("system_clock cannot be emptied: DELETE is rejected") {
+        withConnection { conn =>
+          conn.setAutoCommit(false)
+          val wasRejected = rejects(
+            conn,
+            "sp_clock_delete",
+            "DELETE FROM system_clock",
+            RaiseException
           )
           conn.rollback()
           wasRejected

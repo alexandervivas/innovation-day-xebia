@@ -6,7 +6,17 @@
 -- need no renames.
 --
 -- transactions is append-only (CLAUDE.md rule 2): corrections are reversal (reverses_id) plus
--- repost, never UPDATE/DELETE. That is enforced below with a trigger, not just app discipline.
+-- repost, never UPDATE/DELETE. That is enforced below with triggers, not just app discipline.
+--
+-- Known open questions, deliberately left unanswered here because each needs an engine or
+-- write-tool spec that does not exist yet. These are NOT TODOs for CB-03:
+--   * transactions.type has no CHECK constraint: the allowed vocabulary belongs to the write
+--     tools, so it gets pinned when those stories define it.
+--   * accruals.amount is NUMERIC(18,2); whether cent-exact daily actual/365 accrual needs more
+--     scale to replay identically is for the recalculation engine spec (CB-15a/15b) to settle.
+--   * nothing links a repost back to the transaction it re-applies (only a reversal links back,
+--     via reverses_id); whether that link is needed depends on the correction flow those stories
+--     define.
 
 CREATE TABLE clients (
   id           TEXT PRIMARY KEY,
@@ -61,15 +71,39 @@ CREATE TABLE transactions (
   idempotency_key TEXT NOT NULL UNIQUE
 );
 
+-- A transaction may be reversed at most once, and may never reverse itself. UNIQUE treats
+-- multiple NULLs as distinct in Postgres, so ordinary non-reversing transactions are unaffected.
+ALTER TABLE transactions
+  ADD CONSTRAINT transactions_reverses_id_unique UNIQUE (reverses_id);
+ALTER TABLE transactions
+  ADD CONSTRAINT transactions_no_self_reversal CHECK (reverses_id IS NULL OR reverses_id <> id);
+
 CREATE FUNCTION forbid_transactions_mutation() RETURNS TRIGGER AS $$
 BEGIN
   RAISE EXCEPTION 'transactions is append-only: % not allowed on id=%', TG_OP, OLD.id;
 END;
 $$ LANGUAGE plpgsql;
 
+-- Statement-level counterpart: TRUNCATE has no OLD row, so it needs its own function. Without
+-- this, a row-level trigger alone leaves TRUNCATE as an open hole in the append-only guarantee.
+CREATE FUNCTION forbid_transactions_truncate() RETURNS TRIGGER AS $$
+BEGIN
+  RAISE EXCEPTION 'transactions is append-only: % not allowed', TG_OP;
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE TRIGGER transactions_append_only
   BEFORE UPDATE OR DELETE ON transactions
   FOR EACH ROW EXECUTE FUNCTION forbid_transactions_mutation();
+
+CREATE TRIGGER transactions_no_truncate
+  BEFORE TRUNCATE ON transactions
+  FOR EACH STATEMENT EXECUTE FUNCTION forbid_transactions_truncate();
+
+-- ENABLE ALWAYS, not merely enabled: a session that sets session_replication_role = 'replica'
+-- would otherwise silently skip both triggers and mutate the ledger freely.
+ALTER TABLE transactions ENABLE ALWAYS TRIGGER transactions_append_only;
+ALTER TABLE transactions ENABLE ALWAYS TRIGGER transactions_no_truncate;
 
 CREATE TABLE accruals (
   id           BIGSERIAL PRIMARY KEY,
@@ -89,6 +123,21 @@ CREATE TABLE system_clock (
 );
 
 INSERT INTO system_clock (current_date_value) VALUES (CURRENT_DATE);
+
+-- The clock row must never be removed: rule 4 makes it the only time source, so an empty table
+-- leaves every date-sensitive read with nothing to read. Statement-level, so a DELETE is refused
+-- whether or not its WHERE clause matches anything, and TRUNCATE is refused too.
+CREATE FUNCTION forbid_system_clock_removal() RETURNS TRIGGER AS $$
+BEGIN
+  RAISE EXCEPTION 'system_clock is a permanent single row: % not allowed, use UPDATE', TG_OP;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER system_clock_no_delete
+  BEFORE DELETE OR TRUNCATE ON system_clock
+  FOR EACH STATEMENT EXECUTE FUNCTION forbid_system_clock_removal();
+
+ALTER TABLE system_clock ENABLE ALWAYS TRIGGER system_clock_no_delete;
 
 CREATE TABLE accounting_periods (
   start_date DATE PRIMARY KEY,
