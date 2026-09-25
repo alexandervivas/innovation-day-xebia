@@ -5,9 +5,10 @@ import java.util.UUID
 
 import com.augustnagro.magnum.{Spec as _, *}
 import zio.*
+import zio.json.*
 import zio.test.*
 
-import corebanking.config.DbConfig
+import corebanking.config.{CoreEnv, DbConfig}
 import corebanking.db.{Db, FlywayRunner}
 import corebanking.db.TestTransactions.rollingBack
 
@@ -24,6 +25,11 @@ object GetTransactionsSpec extends ZIOSpecDefault:
   private val TxLateId = UUID.fromString("018f3f00-0000-7000-8000-0000000000c6")
   private val TxReversalId = UUID.fromString("018f3f00-0000-7000-8000-0000000000c7")
   private val MissingAccountId = UUID.fromString("018f3f00-0000-7000-8000-0000000000ff")
+
+  final case class DecodedEnvelope(env: String, data: List[TransactionData])
+  object DecodedEnvelope:
+    given JsonDecoder[TransactionData] = DeriveJsonDecoder.gen[TransactionData]
+    given JsonDecoder[DecodedEnvelope] = DeriveJsonDecoder.gen[DecodedEnvelope]
 
   private def seedFixture()(using DbCon): Unit =
     sql"INSERT INTO products (id, name, kind, annual_rate) VALUES ($ProductId, 'Test Savings', 'savings', 0.015)".update
@@ -100,5 +106,59 @@ object GetTransactionsSpec extends ZIOSpecDefault:
           .attemptBlocking(rollingBack(xa)(GetTransactions.find(MissingAccountId, None, None)))
           .exit
           .map(exit => assertTrue(exit.isFailure))
+    },
+    test("response envelopes every transaction, decoding dates and reversesId exactly") {
+      ZIO.attemptBlocking(FlywayRunner.migrate(config)) *>
+        ZIO
+          .attemptBlocking {
+            rollingBack(xa) {
+              seedFixture()
+              GetTransactions.response(CoreEnv.Mock, AccountId, None, None)
+            }
+          }
+          .map { json =>
+            assertTrue(
+              json.fromJson[DecodedEnvelope] ==
+                Right(
+                  DecodedEnvelope(
+                    env = "mock",
+                    data = List(
+                      TransactionData(
+                        TxEarlyId.toString,
+                        "deposit",
+                        BigDecimal("100.00"),
+                        LocalDate.parse("2026-01-05"),
+                        LocalDate.parse("2026-01-05"),
+                        None
+                      ),
+                      TransactionData(
+                        TxMidId.toString,
+                        "deposit",
+                        BigDecimal("200.00"),
+                        LocalDate.parse("2026-02-10"),
+                        LocalDate.parse("2026-02-10"),
+                        None
+                      ),
+                      TransactionData(
+                        TxReversalId.toString,
+                        "reversal",
+                        BigDecimal("200.00"),
+                        LocalDate.parse("2026-02-11"),
+                        LocalDate.parse("2026-02-11"),
+                        Some(TxMidId.toString)
+                      ),
+                      TransactionData(
+                        TxLateId.toString,
+                        "deposit",
+                        BigDecimal("300.00"),
+                        LocalDate.parse("2026-03-20"),
+                        LocalDate.parse("2026-03-20"),
+                        None
+                      )
+                    )
+                  )
+                )
+            )
+          }
     }
   ) @@ TestAspect.sequential @@ TestAspect.timeout(30.seconds)
