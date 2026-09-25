@@ -77,6 +77,10 @@ object FullReplay extends RecalculationStrategy:
       val dueToday = installmentAmount * BigDecimal(installments.count(_.dueDate == day))
       val scheduled = accrued.copy(cumScheduled = accrued.cumScheduled + dueToday)
 
+      // Deliberate ordering: the fee is charged before the day's repayments are applied, so money
+      // arriving exactly on dueDate + graceDays is too late to avoid it (it pays the fee instead).
+      // `feeChargedFor` is a belt-and-braces guard, not a working de-duplicator: the day loop
+      // visits each installment's fee day exactly once per replay, so it can never block a repeat.
       val charged = installments.foldLeft(scheduled) { (state, inst) =>
         val feeDay = inst.dueDate.plusDays(terms.graceDays.toLong)
         if feeDay == day && !state.feeChargedFor.contains(inst.index)
@@ -145,10 +149,13 @@ object FullReplay extends RecalculationStrategy:
         case Some(period) => Left(RecalcError.PeriodClosed(period))
         case None =>
           val beforeReplay = replay(terms, events, systemDate)
-          // Stable sort: newTx is appended last, so on a value-date tie it sorts after the
-          // events already on that day.
+          // The sort only keeps the list in value-date order for readability; it does not decide
+          // the within-day order. `replay` regroups by value date with `groupBy`, which preserves
+          // each group's original list order, so the `:+` above is what puts newTx last on its own
+          // day -- and `sortBy` is stable, so it leaves that append order intact.
           val newEvents = (events :+ newTx).sortBy(_.valueDate.toEpochDay)
-          val after = replay(terms, newEvents, systemDate).state
+          val afterReplay = replay(terms, newEvents, systemDate)
+          val after = afterReplay.state
 
           val affectedUserEvents = events.filter(!_.valueDate.isBefore(newTx.valueDate))
 
@@ -158,7 +165,13 @@ object FullReplay extends RecalculationStrategy:
           // on its own whether it still stands. With nothing to repost the window stays open to the
           // system date, so a fee the recomputation drops is still reported as reversed.
           val windowEnd = affectedUserEvents.map(_.valueDate).maxOption.getOrElse(systemDate)
-          val affectedFees = beforeReplay.lateFees.filter { (_, chargedOn) =>
+          // Falling inside the window is not enough: with the window open to the system date it
+          // also catches fees the recomputation charges all over again (the backdated payment was
+          // too small to close the gap). Reverse only the fees the `after` replay no longer
+          // charges, so `chain` and `after` can never contradict each other.
+          val afterFeeIds = afterReplay.lateFees.map((id, _) => id).toSet
+          val affectedFees = beforeReplay.lateFees.filter { (id, chargedOn) =>
+            !afterFeeIds.contains(id) &&
             !chargedOn.isBefore(newTx.valueDate) && !chargedOn.isAfter(windowEnd)
           }
 

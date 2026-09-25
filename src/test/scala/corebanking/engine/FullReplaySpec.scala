@@ -37,6 +37,11 @@ object FullReplaySpec extends ZIOSpecDefault:
   private val afterAllHistory =
     UserEvent.Repayment("TX-1020", eur("500.00"), d("2026-11-05"), systemDate)
 
+  // Same value date, but far too small to close the arrears gap: by the 8 November fee day the
+  // recomputed loan has still paid less than it owed, so installment 3's fee is charged again.
+  private val tooSmallToClear =
+    UserEvent.Repayment("TX-1030", eur("1.00"), d("2026-11-05"), d("2026-11-05"))
+
   /**
    * One day of interest on 1000.00 at 8% actual/365 is 0.2191780821..., which rounds HALF_UP to
    * 0.22. A repayment of 0.2195 therefore sits *above* the unrounded interest but *below* the
@@ -75,6 +80,16 @@ object FullReplaySpec extends ZIOSpecDefault:
           ChainStep.Reverse("LATE-FEE:installment-3"),
           ChainStep.Post("TX-1020")
         )
+      )
+    },
+
+    test("a late fee the recompute still charges is never reported as reversed") {
+      val r = FullReplay.backdate(terms, history, tooSmallToClear, systemDate, Nil).toOption.get
+      assertTrue(
+        r.before.lateFeesCharged == eur("15.00"),
+        r.after.lateFeesCharged == eur("15.00"),
+        !r.chain.contains(ChainStep.Reverse("LATE-FEE:installment-3")),
+        r.chain == List(ChainStep.Post("TX-1030"))
       )
     }
   ) + suite("FullReplay — rounding boundaries")(
