@@ -32,5 +32,8 @@ lazy val root = (project in file("."))
     // eagerly runs the CORE_ENV guard at object initialization. Fork the test JVM and pin a
     // valid CORE_ENV so that guard never calls sys.exit(1) while running tests.
     Test / fork := true,
-    Test / envVars += ("CORE_ENV" -> "mock")
+    Test / envVars += ("CORE_ENV" -> "mock"),
+    // Several specs move the singleton system_clock row; run them serially so one spec's clock
+    // advance never lands inside another spec's before/after comparison.
+    Test / parallelExecution := false
   )

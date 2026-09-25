@@ -23,11 +23,13 @@
 
 ## Review Focus
 
-- **`advance_date(days=0)` or a negative `days`:** a reasonable caller expects this to be rejected, not silently accepted as a no-op or a backdating move. Pinned in Task 3, "rejects a non-positive days value without touching the clock."
+- **`advance_date(days=0)` or a negative `days`:** a reasonable caller expects this to be rejected with an error envelope (not a raw exception, and not silently accepted as a no-op or a backdating move), and still logged. Pinned in Task 3, "a non-positive days value returns an error envelope and still logs one audit_log row."
 - **A retried `idempotency_key` with a *different* `days` value:** must return the original result unchanged, not re-advance by the new amount. Pinned in Task 3, "a repeated idempotency_key replays the first result without advancing the clock again."
 - **A replayed idempotent call still needs its own audit trail entry** (rule 6 says every call is logged, not every state change) — a naive "skip everything on replay" implementation would silently drop this. Pinned in Task 3, "each call, including a replayed one, adds exactly one audit_log row."
 - **`dry_run=true` must leave the row untouched but still return the correct would-be dates** — a naive implementation might compute the dates outside the rolled-back transaction and get them right by accident even if the rollback itself is broken. Pinned in Task 3, "dry_run leaves the clock unchanged but returns the would-be result," which asserts both the unchanged row and the returned dates.
 - **`get_system_date` must reflect a clock that was moved by something other than itself** (e.g. a direct write, or — later — `advance_date`) rather than any cached or seeded value. Pinned in Task 2, "reflects a clock value written after the seed."
+- **A repeated `idempotency_key` must never leak a response recorded under a different `env`** — the same mock Postgres can serve both `mock` and `sandbox` runs depending on `CORE_ENV`. Pinned in Task 3, "a repeated idempotency_key does not replay a response recorded under a different env."
+- **A dry run must never poison a later real call under the same `idempotency_key`** — dry runs are previews and must not become a durable replay baseline. Pinned in Task 3, "a dry_run call does not poison a later real call with the same idempotency_key."
 
 ---
 
@@ -560,6 +562,14 @@ object AdvanceDateSpec extends ZIOSpecDefault:
   object DecodedEnvelope:
     given JsonCodec[DecodedEnvelope] = DeriveJsonCodec.gen[DecodedEnvelope]
 
+  final case class DecodedError(error: String)
+  object DecodedError:
+    given JsonCodec[DecodedError] = DeriveJsonCodec.gen[DecodedError]
+
+  final case class DecodedErrorEnvelope(env: String, data: DecodedError)
+  object DecodedErrorEnvelope:
+    given JsonCodec[DecodedErrorEnvelope] = DeriveJsonCodec.gen[DecodedErrorEnvelope]
+
   private def rawCurrentDate(): LocalDate =
     transact(xa):
       sql"SELECT current_date_value FROM system_clock WHERE id = true"
@@ -588,12 +598,18 @@ object AdvanceDateSpec extends ZIOSpecDefault:
           )
       )
     },
-    test("rejects a non-positive days value without touching the clock") {
+    test("a non-positive days value returns an error envelope and still logs one audit_log row") {
       val before = rawCurrentDate()
-      val result =
-        scala.util.Try(AdvanceDate.run(xa, CoreEnv.Mock, days = 0, idempotencyKey = None, dryRun = false))
+      val beforeCount = auditCount("advance_date")
+      val json = AdvanceDate.run(xa, CoreEnv.Mock, days = 0, idempotencyKey = None, dryRun = false)
       val after = rawCurrentDate()
-      assertTrue(result.isFailure, after == before)
+      val afterCount = auditCount("advance_date")
+      assertTrue(
+        after == before,
+        afterCount == beforeCount + 1,
+        json.fromJson[DecodedErrorEnvelope] ==
+          Right(DecodedErrorEnvelope(env = "mock", data = DecodedError(error = "days must be positive, got 0")))
+      )
     },
     test("dry_run leaves the clock unchanged but returns the would-be result") {
       val before = rawCurrentDate()
@@ -636,6 +652,34 @@ object AdvanceDateSpec extends ZIOSpecDefault:
       AdvanceDate.run(xa, CoreEnv.Mock, days = 1, idempotencyKey = Some(key), dryRun = false)
       val afterSecondCall = auditCount("advance_date")
       assertTrue(afterFirstCall == beforeCount + 1, afterSecondCall == beforeCount + 2)
+    },
+    test("a dry_run call does not poison a later real call with the same idempotency_key") {
+      val key = UUID.randomUUID().toString
+      val before = rawCurrentDate()
+      val dryJson = AdvanceDate.run(xa, CoreEnv.Mock, days = 7, idempotencyKey = Some(key), dryRun = true)
+      val afterDry = rawCurrentDate()
+      val realJson = AdvanceDate.run(xa, CoreEnv.Mock, days = 7, idempotencyKey = Some(key), dryRun = false)
+      val afterReal = rawCurrentDate()
+      assertTrue(
+        afterDry == before,
+        afterReal == before.plusDays(7),
+        dryJson.fromJson[DecodedEnvelope].map(_.data.dryRun) == Right(true),
+        realJson.fromJson[DecodedEnvelope].map(_.data.dryRun) == Right(false)
+      )
+    },
+    test("a repeated idempotency_key does not replay a response recorded under a different env") {
+      val key = UUID.randomUUID().toString
+      val before = rawCurrentDate()
+      val mockJson = AdvanceDate.run(xa, CoreEnv.Mock, days = 3, idempotencyKey = Some(key), dryRun = false)
+      val afterMock = rawCurrentDate()
+      val sandboxJson = AdvanceDate.run(xa, CoreEnv.Sandbox, days = 3, idempotencyKey = Some(key), dryRun = false)
+      val afterSandbox = rawCurrentDate()
+      assertTrue(
+        afterMock == before.plusDays(3),
+        afterSandbox == afterMock.plusDays(3),
+        mockJson.fromJson[DecodedEnvelope].map(_.env) == Right("mock"),
+        sandboxJson.fromJson[DecodedEnvelope].map(_.env) == Right("sandbox")
+      )
     }
   ) @@ sequential @@ timeout(1.minute)
 ```
@@ -673,16 +717,18 @@ final case class AdvanceDateData(
 object AdvanceDateData:
   given JsonEncoder[AdvanceDateData] = DeriveJsonEncoder.gen[AdvanceDateData]
 
+/** Reported instead of `AdvanceDateData` when `days` fails validation. */
+final case class AdvanceDateError(error: String)
+
+object AdvanceDateError:
+  given JsonEncoder[AdvanceDateError] = DeriveJsonEncoder.gen[AdvanceDateError]
+
 final private case class AdvanceDateRequest(days: Int, idempotencyKey: Option[String], dryRun: Boolean)
 
 private object AdvanceDateRequest:
   given JsonEncoder[AdvanceDateRequest] = DeriveJsonEncoder.gen[AdvanceDateRequest]
 
-/**
- * Advances the ledger's own clock (CLAUDE.md rule 4). `system_clock` is a singleton row with no
- * `idempotency_key` column of its own, so a retried call is recognized by replaying the matching
- * `audit_log` row from its first call, instead of looking up a row on `system_clock` itself.
- */
+/** Moves the ledger's system date forward; a repeated idempotency key returns the original move unchanged. */
 object AdvanceDate:
 
   def run(
@@ -692,11 +738,13 @@ object AdvanceDate:
       idempotencyKey: Option[String],
       dryRun: Boolean
   ): String =
-    require(days > 0, s"days must be positive, got $days")
     val requestJson = AdvanceDateRequest(days, idempotencyKey, dryRun).toJson
-    val response = idempotencyKey.flatMap(findReplay(xa, _)) match
-      case Some(replayed) => replayed
-      case None => ToolResponse.respond(env, execute(xa, days, dryRun))
+    val response =
+      if days <= 0 then ToolResponse.respond(env, AdvanceDateError(s"days must be positive, got $days"))
+      else
+        idempotencyKey.flatMap(findReplay(xa, env, _)) match
+          case Some(replayed) => replayed
+          case None => ToolResponse.respond(env, execute(xa, days, dryRun))
     AuditLog.record(
       xa,
       toolName = "advance_date",
@@ -706,13 +754,16 @@ object AdvanceDate:
     )
     response
 
-  /** Most recent stored response for a matching key, or `None` on a first-time key. */
-  private def findReplay(xa: Transactor, key: String): Option[String] =
+  /** Most recent stored response from a prior real (non-dry-run) call for a matching key and env — a dry run, or a different env, never establishes a replay baseline. */
+  private def findReplay(xa: Transactor, env: CoreEnv, key: String): Option[String] =
     transact(xa):
       sql"""
         SELECT response::text
         FROM audit_log
-        WHERE tool_name = 'advance_date' AND request ->> 'idempotencyKey' = $key
+        WHERE tool_name = 'advance_date'
+          AND env = ${env.label}
+          AND request ->> 'idempotencyKey' = $key
+          AND request ->> 'dryRun' = 'false'
         ORDER BY id DESC
         LIMIT 1
       """.query[String].run().headOption
@@ -769,7 +820,7 @@ Modify `src/main/scala/corebanking/Server.scala`:
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `sbt "testOnly corebanking.tools.AdvanceDateSpec"`
-Expected: PASS (5 tests).
+Expected: PASS (7 tests).
 
 - [ ] **Step 5: Run the full gate and commit**
 
