@@ -4,9 +4,7 @@ import com.augustnagro.magnum.*
 
 /**
  * Runs `f` inside a transaction that always rolls back, returning whatever `f` returned. Lets a
- * spec seed fixture rows and query them in the same transaction without leaving anything behind —
- * `SchemaMigrationSpec`'s savepoint-per-assertion pattern does the same thing with raw JDBC; this
- * is the equivalent for magnum-based reads.
+ * spec seed fixture rows and query them without leaving anything behind.
  */
 object TestTransactions:
 

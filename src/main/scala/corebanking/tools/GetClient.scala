@@ -15,15 +15,11 @@ final case class ClientData(id: String, displayName: String, openedOn: LocalDate
 object ClientData:
   given JsonEncoder[ClientData] = DeriveJsonEncoder.gen[ClientData]
 
-/** Query row shape for `get_client`, one-to-one with its `SELECT`'s column order. */
 final private case class ClientRow(displayName: String, openedOn: LocalDate) derives DbCodec
 
 object GetClient:
 
-  /**
-   * Looks up one client by id. Throws `NoSuchElementException` when no client has that id, which
-   * fast-mcp-scala surfaces as a tool-call error.
-   */
+  /** Looks up one client by id. Throws `NoSuchElementException` when no client has that id. */
   def find(clientId: UUID)(using DbCon): ClientData =
     val rows = sql"SELECT display_name, opened_on FROM clients WHERE id = $clientId"
       .query[ClientRow]
