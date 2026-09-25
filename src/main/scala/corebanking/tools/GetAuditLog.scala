@@ -26,6 +26,12 @@ final case class GetAuditLogRequest(startTime: Option[String], endTime: Option[S
 object GetAuditLogRequest:
   given JsonEncoder[GetAuditLogRequest] = DeriveJsonEncoder.gen[GetAuditLogRequest]
 
+/** `get_audit_log`'s own audited response: a count rather than the full row list. */
+final case class AuditLogSummary(count: Int, startTime: Option[String], endTime: Option[String])
+
+object AuditLogSummary:
+  given JsonEncoder[AuditLogSummary] = DeriveJsonEncoder.gen[AuditLogSummary]
+
 final private case class AuditLogRow(
     id: Long,
     toolName: String,
