@@ -21,6 +21,12 @@ final case class AdvanceDateData(
 object AdvanceDateData:
   given JsonEncoder[AdvanceDateData] = DeriveJsonEncoder.gen[AdvanceDateData]
 
+/** Reported instead of `AdvanceDateData` when `days` fails validation. */
+final case class AdvanceDateError(error: String)
+
+object AdvanceDateError:
+  given JsonEncoder[AdvanceDateError] = DeriveJsonEncoder.gen[AdvanceDateError]
+
 final private case class AdvanceDateRequest(
     days: Int,
     idempotencyKey: Option[String],
@@ -31,9 +37,8 @@ private object AdvanceDateRequest:
   given JsonEncoder[AdvanceDateRequest] = DeriveJsonEncoder.gen[AdvanceDateRequest]
 
 /**
- * Advances the ledger's own clock (CLAUDE.md rule 4). `system_clock` is a singleton row with no
- * `idempotency_key` column of its own, so a retried call is recognized by replaying the matching
- * `audit_log` row from its first call, instead of looking up a row on `system_clock` itself.
+ * Moves the ledger's system date forward; a repeated idempotency key returns the original move
+ * unchanged.
  */
 object AdvanceDate:
 
@@ -44,11 +49,14 @@ object AdvanceDate:
       idempotencyKey: Option[String],
       dryRun: Boolean
   ): String =
-    require(days > 0, s"days must be positive, got $days")
     val requestJson = AdvanceDateRequest(days, idempotencyKey, dryRun).toJson
-    val response = idempotencyKey.flatMap(findReplay(xa, _)) match
-      case Some(replayed) => replayed
-      case None => ToolResponse.respond(env, execute(xa, days, dryRun))
+    val response =
+      if days <= 0 then
+        ToolResponse.respond(env, AdvanceDateError(s"days must be positive, got $days"))
+      else
+        idempotencyKey.flatMap(findReplay(xa, env, _)) match
+          case Some(replayed) => replayed
+          case None => ToolResponse.respond(env, execute(xa, days, dryRun))
     AuditLog.record(
       xa,
       toolName = "advance_date",
@@ -58,13 +66,14 @@ object AdvanceDate:
     )
     response
 
-  /** Most recent response a real call stored under this key; a dry run caches nothing. */
-  private def findReplay(xa: Transactor, key: String): Option[String] =
+  /** Most recent response a real call stored under this key and env; a dry run caches nothing. */
+  private def findReplay(xa: Transactor, env: CoreEnv, key: String): Option[String] =
     transact(xa):
       sql"""
         SELECT response::text
         FROM audit_log
         WHERE tool_name = 'advance_date'
+          AND env = ${env.label}
           AND request ->> 'idempotencyKey' = $key
           AND request ->> 'dryRun' = 'false'
         ORDER BY id DESC

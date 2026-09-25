@@ -32,6 +32,14 @@ object AdvanceDateSpec extends ZIOSpecDefault:
   object DecodedEnvelope:
     given JsonCodec[DecodedEnvelope] = DeriveJsonCodec.gen[DecodedEnvelope]
 
+  final case class DecodedError(error: String)
+  object DecodedError:
+    given JsonCodec[DecodedError] = DeriveJsonCodec.gen[DecodedError]
+
+  final case class DecodedErrorEnvelope(env: String, data: DecodedError)
+  object DecodedErrorEnvelope:
+    given JsonCodec[DecodedErrorEnvelope] = DeriveJsonCodec.gen[DecodedErrorEnvelope]
+
   private def rawCurrentDate(): LocalDate =
     transact(xa):
       sql"SELECT current_date_value FROM system_clock WHERE id = true"
@@ -60,14 +68,23 @@ object AdvanceDateSpec extends ZIOSpecDefault:
           )
       )
     },
-    test("rejects a non-positive days value without touching the clock") {
+    test("a non-positive days value returns an error envelope and still logs one audit_log row") {
       val before = rawCurrentDate()
-      val result =
-        scala.util.Try(
-          AdvanceDate.run(xa, CoreEnv.Mock, days = 0, idempotencyKey = None, dryRun = false)
-        )
+      val beforeCount = auditCount("advance_date")
+      val json = AdvanceDate.run(xa, CoreEnv.Mock, days = 0, idempotencyKey = None, dryRun = false)
       val after = rawCurrentDate()
-      assertTrue(result.isFailure, after == before)
+      val afterCount = auditCount("advance_date")
+      assertTrue(
+        after == before,
+        afterCount == beforeCount + 1,
+        json.fromJson[DecodedErrorEnvelope] ==
+          Right(
+            DecodedErrorEnvelope(
+              env = "mock",
+              data = DecodedError(error = "days must be positive, got 0")
+            )
+          )
+      )
     },
     test("dry_run leaves the clock unchanged but returns the would-be result") {
       val before = rawCurrentDate()
@@ -118,6 +135,22 @@ object AdvanceDateSpec extends ZIOSpecDefault:
         afterReal == before.plusDays(7),
         dryJson.fromJson[DecodedEnvelope].map(_.data.dryRun) == Right(true),
         realJson.fromJson[DecodedEnvelope].map(_.data.dryRun) == Right(false)
+      )
+    },
+    test("a repeated idempotency_key does not replay a response recorded under a different env") {
+      val key = UUID.randomUUID().toString
+      val before = rawCurrentDate()
+      val mockJson =
+        AdvanceDate.run(xa, CoreEnv.Mock, days = 3, idempotencyKey = Some(key), dryRun = false)
+      val afterMock = rawCurrentDate()
+      val sandboxJson =
+        AdvanceDate.run(xa, CoreEnv.Sandbox, days = 3, idempotencyKey = Some(key), dryRun = false)
+      val afterSandbox = rawCurrentDate()
+      assertTrue(
+        afterMock == before.plusDays(3),
+        afterSandbox == afterMock.plusDays(3),
+        mockJson.fromJson[DecodedEnvelope].map(_.env) == Right("mock"),
+        sandboxJson.fromJson[DecodedEnvelope].map(_.env) == Right("sandbox")
       )
     },
     test("each call, including a replayed one, adds exactly one audit_log row") {
