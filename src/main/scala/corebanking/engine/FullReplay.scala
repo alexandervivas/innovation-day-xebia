@@ -15,82 +15,101 @@ object FullReplay extends RecalculationStrategy:
   /** The replayed position plus the late fees the replay itself charged, with their value dates. */
   private case class ReplayResult(state: LoanState, lateFees: List[(String, LocalDate)])
 
+  /** The loan's running position as the day-by-day replay proceeds. */
+  private case class RunningState(
+      principal: BigDecimal = BigDecimal(0),
+      interestUnpaid: BigDecimal = BigDecimal(0),
+      feesCharged: BigDecimal = BigDecimal(0),
+      cumScheduled: BigDecimal = BigDecimal(0),
+      cumPaidInterestPrincipal: BigDecimal = BigDecimal(0),
+      allocations: Map[String, Allocation] = Map.empty,
+      feeChargedFor: Set[Int] = Set.empty,
+      lateFees: List[(String, LocalDate)] = Nil
+  )
+
+  /** Splits one repayment: fees, then interest, then principal. */
+  private def applyRepayment(state: RunningState, id: String, amount: BigDecimal): RunningState =
+    val feePay = state.feesCharged.min(amount)
+    val afterFees = amount - feePay
+
+    val interestPayExact = state.interestUnpaid.min(afterFees)
+    val interestPayRounded = interestPayExact.setScale(2, BigDecimal.RoundingMode.HALF_UP)
+
+    val afterInterest = (afterFees - interestPayRounded).max(BigDecimal(0))
+    val principalPay = state.principal.min(afterInterest)
+
+    state.copy(
+      principal = state.principal - principalPay,
+      interestUnpaid = state.interestUnpaid - interestPayExact,
+      feesCharged = state.feesCharged - feePay,
+      cumPaidInterestPrincipal = state.cumPaidInterestPrincipal + interestPayRounded + principalPay,
+      allocations = state.allocations + (id -> Allocation(feePay, interestPayRounded, principalPay))
+    )
+
   private def replay(terms: LoanTerms, events: List[UserEvent], asOf: LocalDate): ReplayResult =
     val installmentAmount = Schedule.installmentAmount(terms)
     val installments = Schedule.dueDates(terms).zipWithIndex.map((d, i) => Installment(i + 1, d))
     val eventsByDate = events.groupBy(_.valueDate)
 
-    var principal = BigDecimal(0)
-    var interestUnpaid = BigDecimal(0)
-    var feesCharged = BigDecimal(0)
-    var cumScheduled = BigDecimal(0)
-    var cumPaidInterestPrincipal = BigDecimal(0)
-    var allocations = Map.empty[String, Allocation]
-    var feeChargedFor = Set.empty[Int]
-    var lateFees = List.empty[(String, LocalDate)]
+    val days = Iterator
+      .iterate(terms.disbursementDate)(_.plusDays(1))
+      .takeWhile(!_.isAfter(asOf))
 
-    var day = terms.disbursementDate
-    while !day.isAfter(asOf) do
-      if principal > 0 then interestUnpaid += principal * terms.annualRate / BigDecimal(365)
+    val closing = days.foldLeft(RunningState()) { (dayOpen, day) =>
+      val accrued =
+        if dayOpen.principal > 0 then
+          val interest = dayOpen.principal * terms.annualRate / BigDecimal(365)
+          dayOpen.copy(interestUnpaid = dayOpen.interestUnpaid + interest)
+        else dayOpen
 
-      installments.foreach(inst => if inst.dueDate == day then cumScheduled += installmentAmount)
+      val dueToday = installmentAmount * BigDecimal(installments.count(_.dueDate == day))
+      val scheduled = accrued.copy(cumScheduled = accrued.cumScheduled + dueToday)
 
-      installments.foreach { inst =>
+      val charged = installments.foldLeft(scheduled) { (state, inst) =>
         val feeDay = inst.dueDate.plusDays(terms.graceDays.toLong)
-        if feeDay == day && !feeChargedFor.contains(inst.index)
-          && cumPaidInterestPrincipal < cumScheduled
+        if feeDay == day && !state.feeChargedFor.contains(inst.index)
+          && state.cumPaidInterestPrincipal < state.cumScheduled
         then
-          feesCharged += terms.lateFee
-          feeChargedFor += inst.index
-          lateFees = (feeId(inst.index), day) :: lateFees
+          state.copy(
+            feesCharged = state.feesCharged + terms.lateFee,
+            feeChargedFor = state.feeChargedFor + inst.index,
+            lateFees = (feeId(inst.index), day) :: state.lateFees
+          )
+        else state
       }
 
-      eventsByDate.getOrElse(day, Nil).foreach {
-        case UserEvent.Disbursement(_, amount, _, _) =>
-          principal += amount
-        case UserEvent.Repayment(id, amount, _, _) =>
-          var remaining = amount
-
-          val feePay = feesCharged.min(remaining)
-          feesCharged -= feePay
-          remaining -= feePay
-
-          val interestPayExact = interestUnpaid.min(remaining)
-          interestUnpaid -= interestPayExact
-          val interestPayRounded = interestPayExact.setScale(2, BigDecimal.RoundingMode.HALF_UP)
-          remaining -= interestPayRounded
-
-          val principalPay = principal.min(remaining)
-          principal -= principalPay
-
-          allocations += id -> Allocation(feePay, interestPayRounded, principalPay)
-          cumPaidInterestPrincipal += (interestPayRounded + principalPay)
+      eventsByDate.getOrElse(day, Nil).foldLeft(charged) { (state, event) =>
+        event match
+          case UserEvent.Disbursement(_, amount, _, _) =>
+            state.copy(principal = state.principal + amount)
+          case UserEvent.Repayment(id, amount, _, _) =>
+            applyRepayment(state, id, amount)
       }
+    }
 
-      day = day.plusDays(1)
-
-    var cum = BigDecimal(0)
+    // Oldest due installment not yet fully covered — drives days-past-due / arrears.
     val oldestUnpaidDue = installments
       .filterNot(_.dueDate.isAfter(asOf))
-      .find { _ =>
-        cum += installmentAmount
-        cum > cumPaidInterestPrincipal
+      .zipWithIndex
+      .collectFirst {
+        case (inst, i)
+            if installmentAmount * BigDecimal(i + 1) > closing.cumPaidInterestPrincipal =>
+          inst.dueDate
       }
-      .map(_.dueDate)
 
     val dpd = oldestUnpaidDue.map(d => ChronoUnit.DAYS.between(d, asOf).toInt).getOrElse(0)
     val status = if dpd > 0 then LoanStatus.InArrears else LoanStatus.Current
 
     ReplayResult(
       LoanState(
-        principalOutstanding = principal.setScale(2, BigDecimal.RoundingMode.HALF_UP),
-        interestAccruedUnpaid = interestUnpaid.setScale(2, BigDecimal.RoundingMode.HALF_UP),
-        lateFeesCharged = feesCharged.setScale(2, BigDecimal.RoundingMode.HALF_UP),
+        principalOutstanding = closing.principal.setScale(2, BigDecimal.RoundingMode.HALF_UP),
+        interestAccruedUnpaid = closing.interestUnpaid.setScale(2, BigDecimal.RoundingMode.HALF_UP),
+        lateFeesCharged = closing.feesCharged.setScale(2, BigDecimal.RoundingMode.HALF_UP),
         daysPastDue = dpd,
         status = status,
-        allocations = allocations
+        allocations = closing.allocations
       ),
-      lateFees
+      closing.lateFees
     )
 
   def stateAt(terms: LoanTerms, events: List[UserEvent], asOf: LocalDate): LoanState =
