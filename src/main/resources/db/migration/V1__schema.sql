@@ -1,9 +1,12 @@
 -- V1__schema.sql
 -- CB-03: core schema for the mock banking ledger.
 --
--- Column names and shapes follow docs/handoff/V3__seed_demo_ln0042.sql and
--- docs/handoff/RecalculationSpec.scala exactly, so CB-04's seed migration and CB-15a's engine
--- need no renames.
+-- Column names follow docs/handoff/V3__seed_demo_ln0042.sql and docs/handoff/RecalculationSpec.scala
+-- exactly, so CB-04's seed migration and CB-15a's engine need no renames. Their id *values* no
+-- longer carry over, though: entity ids are UUID here (see the note below), so the handoff seed's
+-- string ids ('C-0017', 'LN-0042', 'consumer-loan-12m', 'TX-1001', ...) are rejected outright with
+-- SQLSTATE 22P02 and cannot be used as literals. CB-04 must re-mint the whole demo seed as UUIDs;
+-- that is a re-keying job, not a rename.
 --
 -- transactions is append-only (CLAUDE.md rule 2): corrections are reversal (reverses_id) plus
 -- repost, never UPDATE/DELETE. That is enforced below with triggers, not just app discipline.
@@ -32,6 +35,12 @@
 --   * nothing links a repost back to the transaction it re-applies (only a reversal links back,
 --     via reverses_id); whether that link is needed depends on the correction flow those stories
 --     define.
+--   * no column holds a human-facing external reference. Now that ids are opaque UUIDs, that is a
+--     real open question rather than a naming detail: docs/design/HANDOFF.md and the artboards under
+--     docs/design/artboards/ render labels like LN-0042 and TX-1001 on screen, and CB-05's
+--     get_loan_schedule(loan_id) acceptance criteria pass such a label as the argument. Whether an
+--     external_ref column is added, or those labels are derived some other way, belongs to CB-04
+--     and CB-05.
 
 CREATE TABLE clients (
   id           UUID PRIMARY KEY,
@@ -129,6 +138,16 @@ CREATE TABLE accruals (
   amount       NUMERIC NOT NULL,
   UNIQUE (account_id, accrual_date)
 );
+
+-- The one thing unconstrained NUMERIC gives up compared with NUMERIC(18,8) is the overflow error
+-- that used to reject 'Infinity': unconstrained NUMERIC accepts Infinity, -Infinity and NaN. A
+-- single such row would poison every replayed balance, and accruals have no reversal path the way
+-- transactions do, so finiteness is pinned here instead. NaN is covered too: Postgres sorts NaN
+-- above Infinity, so `amount < 'Infinity'` is already false for it. No scale is implied, so the
+-- full-precision guarantee above is untouched.
+ALTER TABLE accruals
+  ADD CONSTRAINT accruals_amount_is_finite
+  CHECK (amount > '-Infinity'::numeric AND amount < 'Infinity'::numeric);
 
 -- Single-row table: id is BOOLEAN and can only ever be TRUE, so the primary key alone forbids a
 -- second row. Seeded with one row below so callers can UPDATE it without an INSERT ever being

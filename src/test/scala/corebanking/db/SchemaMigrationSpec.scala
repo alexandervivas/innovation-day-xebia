@@ -103,6 +103,9 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
   /** check_violation. */
   private val CheckViolation = "23514"
 
+  /** invalid_text_representation, i.e. a string Postgres cannot parse as the column's type. */
+  private val InvalidTextRepresentation = "22P02"
+
   /**
    * Runs `sql` under a savepoint and reports whether it was rejected for the *expected* reason,
    * rolling back to the savepoint either way so the connection stays usable for the next assertion.
@@ -308,5 +311,46 @@ object SchemaMigrationSpec extends ZIOSpecDefault:
           conn.rollback()
           stored
         }.map(stored => assertTrue(stored == dailyAccrual))
+      },
+      test("entity ids are UUID-typed: a non-UUID string is rejected") {
+        // Every other literal in this suite is UUID-shaped, which a TEXT column would also accept,
+        // so nothing above would notice these columns being reverted to TEXT. This one would: the
+        // handoff seed's own label 'LN-0042' is only rejectable by a UUID column.
+        withConnection { conn =>
+          conn.setAutoCommit(false)
+          seedLoanAccount(conn)
+          val wasRejected = rejects(
+            conn,
+            "sp_uuid_type",
+            "INSERT INTO accounts (id, client_id, product_id, kind, opened_on) " +
+              s"VALUES ('$OrphanAccountId', 'LN-0042', '$ProductId', 'loan', CURRENT_DATE)",
+            InvalidTextRepresentation
+          )
+          conn.rollback()
+          wasRejected
+        }.map(wasRejected => assertTrue(wasRejected))
+      },
+      test("accruals.amount must be finite: Infinity and NaN are rejected") {
+        // Unconstrained NUMERIC accepts these where NUMERIC(18,8) overflowed on them, and a single
+        // non-finite accrual would poison every replayed balance with no reversal path, so the
+        // accruals_amount_is_finite CHECK has to stop them.
+        withConnection { conn =>
+          conn.setAutoCommit(false)
+          seedLoanAccount(conn)
+          def insertAccrual(amount: String): String =
+            "INSERT INTO accruals (account_id, accrual_date, amount) " +
+              s"VALUES ('$AccountId', CURRENT_DATE, '$amount')"
+          val infinityRejected =
+            rejects(conn, "sp_inf", insertAccrual("Infinity"), CheckViolation)
+          val negativeInfinityRejected =
+            rejects(conn, "sp_neg_inf", insertAccrual("-Infinity"), CheckViolation)
+          val nanRejected =
+            rejects(conn, "sp_nan", insertAccrual("NaN"), CheckViolation)
+          conn.rollback()
+          (infinityRejected, negativeInfinityRejected, nanRejected)
+        }.map {
+          case (infinityRejected, negativeInfinityRejected, nanRejected) =>
+            assertTrue(infinityRejected, negativeInfinityRejected, nanRejected)
+        }
       }
     ) @@ sequential @@ timeout(1.minute)
