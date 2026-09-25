@@ -57,7 +57,7 @@
 | CB-17 | post_backdated_transaction | Tool: accept `account_id`, `amount`, `type`, `value_date`. Calls recalculation engine. Posts reversal + new txn + repost chain to DB. Returns full chain of transaction IDs. Accepts `idempotency_key`, `dry_run`. | critical-path | todo |
 | CB-18 | explain_recalculation | Read tool: given transaction ID, return plain-English narrative: "This repayment on 2025-09-15 reduced interest accrual from X to Y because…" Uses `audit_log` + domain model. | critical-path | todo |
 | CB-19 | Validations | Reject if: (1) value_date before account open date; (2) value_date in closed period; (3) overpayment (amount > outstanding). Return specific error codes; error frames must also carry the env field (decision from CB-02 review). | critical-path | todo |
-| CB-20 | Property test: order independence | Verify: post 3 backdated txns in random order (e.g., Day 5, Day 3, Day 7) → final balance identical regardless of order. Use zio-test + Gen. | critical-path | todo |
+| CB-20 | Property test: order independence | Verify: post 3 backdated txns in random order (e.g., Day 5, Day 3, Day 7) → final balance identical regardless of order. Use zio-test + Gen. | critical-path | in-review |
 | CB-20b | Differential property test: FullReplay vs SnapshotReplay | For random backdated sequences (zio-test Gen), `FullReplay` and `SnapshotReplay` yield identical final loan state. | stretch | todo |
 
 ### Design note — recalculation strategies (CB-15 refinement)
