@@ -15,23 +15,31 @@ One Innovation Day (09:00–17:00). Optimise for a working demo.
 | 16:00 | **E6: QA tooling** | CB-21 generate_scenario, CB-22 assert_invariants, CB-23 Export | – |
 | 17:00 | **E7: Demo & docs** | CB-24 Design mockups, CB-25 README + demo script, CB-26 Web console, CB-27 Adapter | – |
 
+## Lanes (parallel workstreams)
+
+Rewired 2026-09-25 (owner decision) to the real data/code dependencies. Each lane is worked in its own git worktree by its own session; merge conflicts are resolved in the branch before the PR, as in a normal SDLC. GitHub carries these as native blocked-by edges; an issue is startable when every blocker is closed.
+
+| Lane | Stories in order | Starts when |
+|---|---|---|
+| **D — Pure engine** | CB-15a → CB-20 | now (no blockers; pure `domain/` + `engine/`, no DB) |
+| **A — Data** | CB-03 → CB-04 → CB-05 | now |
+| **B — Writes** | CB-06 → CB-07 → CB-08 → CB-09, CB-11 | CB-03 merged (CB-07 also needs CB-04 and CB-15a) |
+| **C — Platform** | CB-10, CB-12 → CB-14 | CB-03 merged |
+| **Joins** | CB-13 ← CB-08, CB-12, CB-15a · CB-16/CB-17 ← CB-13, CB-10, CB-15a · CB-18/19/20 ← CB-17 (CB-19 also ← CB-14) · CB-15b ← CB-13 · CB-15c ← CB-15a, CB-15b · CB-20b ← CB-15c | as blockers close |
+| **QA & demo** | CB-21 ← CB-08, CB-12 · CB-22 ← CB-08 · CB-23 ← CB-21 · CB-25 ← CB-19 · CB-26 ← CB-17, CB-25 · CB-27 ← CB-11 | as blockers close |
+
+CB-15a owns the pure domain types (`LoanTerms`, `UserEvent`, `Allocation`, `LoanState`, `ChainStep`, `RecalcResult`, `RecalcError`, `Schedule`, accrual and allocation rules); CB-07 and CB-13 consume them.
+
 ## Critical Path
 
-Dependencies enforced by acceptance criteria:
+Longest chain of blockers to the demo (six stories after CB-03):
 
 ```
-CB-01 → CB-02 → CB-03 → CB-04 → CB-05 → (parallel: CB-06 + CB-07)
-  ↓                                                     ↓
-                                                     CB-08 → CB-09 → CB-10 → CB-11
-                                                     ↓                       ↓
-                                                    CB-12 → CB-13 → CB-14    ↓
-                                                                 ↓           ↓
-                                    CB-15a → (CB-16 + CB-17 + CB-18 + CB-19 + CB-20)
-                                                                 ↓
-                                                     CB-21 ← CB-22 ← CB-23
-                                                     ↓
-                                    (CB-24 mockups + CB-25 docs/demo)
+CB-03 → CB-06 → CB-07 → CB-08 → CB-13 → CB-17 → CB-19 → CB-25
+          (CB-07 also waits for CB-04, CB-15a; CB-13 for CB-12, CB-15a; CB-17 for CB-10)
 ```
+
+Up to four sessions can run at once after CB-03 merges (CB-04, CB-06, CB-10, CB-12) with CB-15a already in flight.
 
 **Must-complete by 17:00**: CB-01 through CB-20 (backdating engine and validation). Everything else is stretch.
 

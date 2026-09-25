@@ -22,13 +22,13 @@ The title starts with the backlog ID. The issue body is the acceptance-criteria 
    gh api graphql -f query='{ repository(owner:"alexandervivas",name:"innovation-day-xebia"){ issue(number:<N>){ blockedBy(first:20){ nodes{ number title state } } } } }'
    ```
 
-   Any blocker whose `state` is `OPEN` means the story is **gated**: do not start it. Report the blockers and stop. The dependency graph follows `PLAN.md` (E0→E1→E2→E3→E4 chain, CB-13 gates CB-15a/15b/21/22, CB-15a gates CB-16/17/15c, CB-17 gates CB-18/19/20, CB-14 gates CB-19, CB-15c gates CB-20b, CB-19 and CB-24 gate CB-25).
+   Any blocker whose `state` is `OPEN` means the story is **gated**: do not start it. Report the blockers and stop. The dependency graph is the lane table in `PLAN.md` § Lanes; GitHub's edges are the executable truth.
 3. Check `git status --short` is clean and `git branch --show-current` is `main`; run `git pull --ff-only origin main`. If a branch `cb-NN-*` already exists for this story, resume it instead of creating a new one.
 4. Fix scope in two or three sentences before delegating anything. State exclusions explicitly.
 
 ## Start
 
-1. Isolation is mandatory: invoke `superpowers:using-git-worktrees` to create the story workspace as a sibling worktree on branch `cb-NN-<slug>` from `origin/main` (`git worktree add ../innovation-day-xebia-cbNN -b cb-NN-<slug> origin/main`). Never implement in the primary checkout; it stays on `main`.
+1. Isolation is mandatory: invoke `superpowers:using-git-worktrees` to create the story workspace as a sibling worktree on branch `cb-NN-<slug>` from `origin/main` (`git worktree add ../innovation-day-xebia-cbNN -b cb-NN-<slug> origin/main`). Never implement in the primary checkout; it stays on `main`. Lanes run in parallel, so other stories will land on `main` while this one is open: before opening the PR, `git fetch origin && git rebase origin/main`, resolve any conflict in the branch (shared files such as `Server.scala` and `build.sbt` are expected to conflict), rerun the gates, and push. Conflicts are normal SDLC work for this session, never a reason to stop.
 2. Set the row's status to `in-progress` in `BACKLOG.md` (parent edit, committed with the story).
 3. Post one concise issue comment naming the branch and worktree. Do not repeat it when resuming.
 
