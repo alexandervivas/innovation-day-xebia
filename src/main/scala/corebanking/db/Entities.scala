@@ -14,7 +14,7 @@ import com.augustnagro.magnum.*
   * on magnum's own `OffsetDateTimeCodec`, using the JDBC 4.2 `getObject`/`setObject(LocalDate)`
   * overloads the PostgreSQL driver supports for `DATE`.
   */
-given DbCodec[LocalDate] with
+given localDateCodec: DbCodec[LocalDate] with
   val cols: IArray[Int] = IArray(Types.DATE)
   def readSingle(rs: ResultSet, pos: Int): LocalDate =
     rs.getObject(pos, classOf[LocalDate])
@@ -22,6 +22,7 @@ given DbCodec[LocalDate] with
     ps.setObject(pos, date)
   def queryRepr: String = "?"
 
+@SqlName("clients")
 @Table(PostgresDbType, SqlNameMapper.CamelToSnakeCase)
 case class Client(
     @Id id: UUID,
@@ -31,6 +32,7 @@ case class Client(
     idempotencyKey: Option[String]
 ) derives DbCodec
 
+@SqlName("accounts")
 @Table(PostgresDbType, SqlNameMapper.CamelToSnakeCase)
 case class Account(
     @Id id: UUID,
@@ -41,6 +43,7 @@ case class Account(
     currency: String
 ) derives DbCodec
 
+@SqlName("transactions")
 @Table(PostgresDbType, SqlNameMapper.CamelToSnakeCase)
 case class Transaction(
     @Id id: UUID,
@@ -56,6 +59,7 @@ case class Transaction(
 /** Read-only row shape for `SELECT current_date_value FROM system_clock WHERE id = true` -- never
   * inserted or looked up by id, so no `@Id`.
   */
+@SqlName("system_clock")
 @Table(PostgresDbType, SqlNameMapper.CamelToSnakeCase)
 case class SystemClockRow(currentDateValue: LocalDate) derives DbCodec
 
@@ -63,5 +67,6 @@ case class SystemClockRow(currentDateValue: LocalDate) derives DbCodec
   * new account row copies (`accounts.kind` mirrors its product's kind; there is no separate `kind`
   * parameter on `open_account`).
   */
+@SqlName("products")
 @Table(PostgresDbType, SqlNameMapper.CamelToSnakeCase)
 case class ProductRef(@Id id: UUID, kind: String) derives DbCodec
