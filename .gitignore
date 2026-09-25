@@ -1,0 +1,24 @@
+# Scala / sbt
+target/
+.bsp/
+.metals/
+.bloop/
+project/target/
+project/project/
+*.log
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Claude Code settings (but keep .claude/ directory tracked)
+.claude/settings.local.json

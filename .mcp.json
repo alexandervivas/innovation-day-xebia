@@ -1,0 +1,1 @@
+{"mcpServers":{"core-banking":{"command":"target/universal/stage/bin/core-banking-mcp","args":[],"env":{"CORE_ENV":"mock"}}}}
