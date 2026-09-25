@@ -65,6 +65,7 @@ object FullReplay extends RecalculationStrategy:
       val dueToday = installmentAmount * BigDecimal(installments.count(_.dueDate == day))
       val scheduled = accrued.copy(cumScheduled = accrued.cumScheduled + dueToday)
 
+      // Grace-period fee is charged before that day's repayments, so a payment on the deadline still pays it.
       val charged = installments.foldLeft(scheduled) { (state, inst) =>
         val feeDay = inst.dueDate.plusDays(terms.graceDays.toLong)
         if feeDay == day && !state.feeChargedFor.contains(inst.index)
@@ -134,14 +135,19 @@ object FullReplay extends RecalculationStrategy:
           val beforeReplay = replay(terms, events, systemDate)
           // On a value-date tie, the backdated transaction is applied after the existing ones.
           val newEvents = (events :+ newTx).sortBy(_.valueDate.toEpochDay)
-          val after = replay(terms, newEvents, systemDate).state
+          val afterReplay = replay(terms, newEvents, systemDate)
+          val after = afterReplay.state
 
           val affectedUserEvents = events.filter(!_.valueDate.isBefore(newTx.valueDate))
 
-          // Only reverses late fees charged between the backdated value date and the last reposted transaction.
-          val windowEnd = affectedUserEvents.map(_.valueDate).maxOption
-          val affectedFees = beforeReplay.lateFees.filter { (_, chargedOn) =>
-            !chargedOn.isBefore(newTx.valueDate) && windowEnd.exists(!chargedOn.isAfter(_))
+          // Only reverses late fees charged between the backdated value date and the last reposted
+          // transaction (or the system date, if nothing is reposted).
+          val windowEnd = affectedUserEvents.map(_.valueDate).maxOption.getOrElse(systemDate)
+          // Only reverses a fee that the recomputed position no longer charges.
+          val afterFeeIds = afterReplay.lateFees.map((id, _) => id).toSet
+          val affectedFees = beforeReplay.lateFees.filter { (id, chargedOn) =>
+            !afterFeeIds.contains(id) &&
+            !chargedOn.isBefore(newTx.valueDate) && !chargedOn.isAfter(windowEnd)
           }
 
           val reverseSteps = (affectedUserEvents.map(e => (e.id, e.valueDate)) ++ affectedFees)

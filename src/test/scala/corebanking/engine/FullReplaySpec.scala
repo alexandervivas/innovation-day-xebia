@@ -1,18 +1,46 @@
 package corebanking.engine
 
+import corebanking.domain.*
 import zio.test.*
 
 import java.time.LocalDate
 
-import corebanking.domain.*
-
 /**
- * Cases the binding CB-15a acceptance fixture (`RecalculationSpec`) does not cover.
- * `RecalculationSpec` stays untouched; anything extra belongs here.
+ * Scenarios the binding acceptance fixture (`RecalculationSpec`, copied verbatim from
+ * `docs/handoff/`) does not cover. That file stays byte-equivalent to its oracle, so extra cases
+ * live here.
  */
 object FullReplaySpec extends ZIOSpecDefault:
 
   private def d(s: String) = LocalDate.parse(s)
+  private def eur(s: String) = BigDecimal(s)
+
+  private val terms = LoanTerms(
+    principal = eur("5000.00"),
+    annualRate = eur("0.08"),
+    termMonths = 12,
+    disbursementDate = d("2026-08-01"),
+    graceDays = 7,
+    lateFee = eur("15.00")
+  )
+
+  private val systemDate = d("2026-11-14")
+
+  private val history = List(
+    UserEvent.Disbursement("TX-1001", eur("5000.00"), d("2026-08-01"), d("2026-08-01")),
+    UserEvent.Repayment("TX-1002", eur("434.94"), d("2026-09-01"), d("2026-09-01")),
+    UserEvent.Repayment("TX-1004", eur("434.94"), d("2026-11-01"), d("2026-11-01"))
+  )
+
+  // Value date after every existing event, so nothing is reversed and reposted, but still before
+  // the system date, so the recompute can still drop a late fee charged in between.
+  private val afterAllHistory =
+    UserEvent.Repayment("TX-1020", eur("500.00"), d("2026-11-05"), systemDate)
+
+  // Same value date, but far too small to close the arrears gap: by the 8 November fee day the
+  // recomputed loan has still paid less than it owed, so installment 3's fee is charged again.
+  private val tooSmallToClear =
+    UserEvent.Repayment("TX-1030", eur("1.00"), d("2026-11-05"), d("2026-11-05"))
 
   /**
    * One day of interest on 1000.00 at 8% actual/365 is 0.2191780821..., which rounds HALF_UP to
@@ -42,7 +70,29 @@ object FullReplaySpec extends ZIOSpecDefault:
 
   private val boundaryAsOf = d("2026-01-13")
 
-  def spec = suite("FullReplay — rounding boundaries")(
+  def spec = suite("FullReplay — chain beyond the acceptance fixture")(
+    test("a late fee the recompute drops is reversed even when no user event is reposted") {
+      val r = FullReplay.backdate(terms, history, afterAllHistory, systemDate, Nil).toOption.get
+      assertTrue(
+        r.before.lateFeesCharged == eur("15.00"),
+        r.after.lateFeesCharged == eur("0.00"),
+        r.chain == List(
+          ChainStep.Reverse("LATE-FEE:installment-3"),
+          ChainStep.Post("TX-1020")
+        )
+      )
+    },
+
+    test("a late fee the recompute still charges is never reported as reversed") {
+      val r = FullReplay.backdate(terms, history, tooSmallToClear, systemDate, Nil).toOption.get
+      assertTrue(
+        r.before.lateFeesCharged == eur("15.00"),
+        r.after.lateFeesCharged == eur("15.00"),
+        !r.chain.contains(ChainStep.Reverse("LATE-FEE:installment-3")),
+        r.chain == List(ChainStep.Post("TX-1030"))
+      )
+    }
+  ) + suite("FullReplay — rounding boundaries")(
     test("a repayment below the rounded interest never allocates negative principal") {
       val s = FullReplay.stateAt(boundaryTerms, boundaryEvents, boundaryAsOf)
       val principalParts = (1 to 12).map(n => s.allocations(s"TX-R$n").principal)

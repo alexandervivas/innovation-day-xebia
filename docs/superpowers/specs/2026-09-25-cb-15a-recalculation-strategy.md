@@ -150,18 +150,69 @@ its one inserted event explicitly, see below).
    "full replay" — no incremental patching.
 5. Synthesize `chain` for reporting (it does not drive the recompute,
    which already happened in step 4): collect every original user event
-   *and* every late-fee synthetic event from the `before` replay whose
-   effective `valueDate >= newTx.valueDate`, sort newest-first, emit
-   `Reverse(id)` for each; emit `Post(newTx.id)`; then emit `Repost(id)`
-   for each collected *user* event (not synthetic fees) oldest-first.
+   with `valueDate >= newTx.valueDate`, plus every late-fee synthetic
+   event from the `before` replay that (a) does **not** appear (by id) in
+   the `after` replay's late fees — i.e. it does not survive the
+   recompute — and (b) has a `chargedOn` date in
+   `[newTx.valueDate, windowEnd]`, where `windowEnd` is the latest
+   `valueDate` among the affected user events, or `systemDate` when there
+   are none. Sort the collected set newest-first, emit `Reverse(id)` for
+   each; emit `Post(newTx.id)`; then emit `Repost(id)` for each collected
+   *user* event (not synthetic fees) oldest-first.
+
+**Correction 2 (found during the final whole-branch review, verified
+independently by the orchestrator):** an earlier draft of this rule
+bounded the fee window by date alone, with no fallback for the case
+where no user event is affected (`windowEnd` undefined) — which silently
+dropped every fee reversal for a routine backdate whose value date is
+after the loan's most recent existing transaction. The fix (folding in a
+`systemDate` fallback for `windowEnd`) is correct on its own, but a
+*date-window-only* filter is not sufficient by itself: replaying a small
+backdated repayment that doesn't clear the shortfall can put a late fee
+inside the window while that same fee **still gets charged** in the
+`after` replay — the chain would then claim a fee was reversed that the
+recomputed state still shows as owed. The rule above closes this by also
+requiring the fee to be absent from the `after` replay's late fees (the
+"survives the recompute" check), not just inside the date window.
+
+**Correction (found during Task 4 implementation, verified independently
+by the orchestrator against the fixture):** an earlier draft of this
+section collected *every* late fee with `chargedOn >= newTx.valueDate`,
+unbounded above. Against the fixture this over-collects: replaying the
+original history charges **two** fees in that window, not one —
+`LATE-FEE:installment-2` (2026-10-08, later paid off by `TX-1004`'s
+`Allocation(15.00, 61.49, 358.45)`) and a *second*, different fee,
+`LATE-FEE:installment-3` (2026-11-08 — installment 3 fell due 2026-11-01
+and cumulative paid interest+principal, 854.88, was still short of
+cumulative scheduled, 1304.82). The second fee, not the first, is what
+the fixture's before-state `lateFeesCharged == 15.00` actually reflects,
+since the first was paid off by `TX-1004` before systemDate. The
+unbounded rule would therefore emit three reversals (installment-3,
+TX-1004, installment-2, newest-first) where the fixture's binding chain
+has exactly two (`TX-1004`, installment-2). Bounding the fee window at
+the newest reposted transaction — as the corrected rule above does —
+reproduces the fixture's exact chain. **Open questions for CB-13/14/16/17**
+(not resolved by this story): a consumer that executes the chain
+literally against a ledger, rather than only reporting it, would still
+need to zero out a fee excluded this way, since the `after` state's
+`lateFeesCharged` drops it with no corresponding `Reverse` step. Also
+unexercised by any fixture case: tie-breaking when a user event and a
+late fee share a `valueDate`; and `closedPeriods` is checked only against
+`newTx.valueDate`, never against the value dates of the transactions the
+chain reverses and reposts, so a backdate into an open period can still
+repost a transaction whose own value date falls inside a *closed* one —
+matches this story's brief and fixture, but CB-14's real period semantics
+should settle whether that's intended.
 
 Verified this against the fixture by hand: for the backdated `TX-1010`
-(valueDate 2026-09-30), the collected set is `TX-1004` (valueDate
-2026-11-01) and the October late fee (charged ~2026-10-08), both
-`>= 2026-09-30`; newest-first reversal gives `Reverse(TX-1004)`,
-`Reverse(LATE-FEE:installment-2)`; then `Post(TX-1010)`; then
-`Repost(TX-1004)` (the only user event in the set) — matches the fixture's
-expected chain exactly.
+(valueDate 2026-09-30), the collected reversal set is `TX-1004` (valueDate
+2026-11-01) and `LATE-FEE:installment-2` (charged 2026-10-08 — inside the
+window, since `TX-1004` on 2026-11-01 is the newest reposted event and
+2026-10-08 falls before it); `LATE-FEE:installment-3` (2026-11-08) is
+excluded, being after `TX-1004`. Newest-first reversal gives
+`Reverse(TX-1004)`, `Reverse(LATE-FEE:installment-2)`; then
+`Post(TX-1010)`; then `Repost(TX-1004)` (the only user event in the set)
+— matches the fixture's expected chain exactly.
 
 ## Testing
 
