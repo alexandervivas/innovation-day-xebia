@@ -33,7 +33,7 @@ object GetLoanScheduleSpec extends ZIOSpecDefault:
       .run()
 
   private def seedLoanWithInstallments()(using DbCon): Unit =
-    sql"INSERT INTO accounts (id, client_id, product_id, kind, opened_on) VALUES ($LoanAccountId, $ClientId, $LoanProductId, 'loan', DATE '2026-08-01')".update
+    sql"INSERT INTO accounts (id, client_id, product_id, kind, opened_on, currency) VALUES ($LoanAccountId, $ClientId, $LoanProductId, 'loan', DATE '2026-08-01', 'COP')".update
       .run()
     sql"INSERT INTO loans (account_id, principal, annual_rate, term_months, disbursement_date, installment_amount, grace_days, late_fee) VALUES ($LoanAccountId, 5000.00, 0.08, 12, DATE '2026-08-01', 434.94, 7, 15.00)".update
       .run()
@@ -43,11 +43,11 @@ object GetLoanScheduleSpec extends ZIOSpecDefault:
       .run()
 
   private def seedSavingsAccount()(using DbCon): Unit =
-    sql"INSERT INTO accounts (id, client_id, product_id, kind, opened_on) VALUES ($SavingsAccountId, $ClientId, $SavingsProductId, 'savings', DATE '2026-08-01')".update
+    sql"INSERT INTO accounts (id, client_id, product_id, kind, opened_on, currency) VALUES ($SavingsAccountId, $ClientId, $SavingsProductId, 'savings', DATE '2026-08-01', 'COP')".update
       .run()
 
   private def seedLoanWithNoInstallments()(using DbCon): Unit =
-    sql"INSERT INTO accounts (id, client_id, product_id, kind, opened_on) VALUES ($LoanNoInstallmentsId, $ClientId, $LoanProductId, 'loan', DATE '2026-08-01')".update
+    sql"INSERT INTO accounts (id, client_id, product_id, kind, opened_on, currency) VALUES ($LoanNoInstallmentsId, $ClientId, $LoanProductId, 'loan', DATE '2026-08-01', 'COP')".update
       .run()
     sql"INSERT INTO loans (account_id, principal, annual_rate, term_months, disbursement_date, installment_amount, grace_days, late_fee) VALUES ($LoanNoInstallmentsId, 5000.00, 0.08, 12, DATE '2026-08-01', 434.94, 7, 15.00)".update
       .run()
