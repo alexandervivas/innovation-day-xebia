@@ -54,13 +54,13 @@ object OpenAccountSpec extends ZIOSpecDefault:
 
   final private case class CountRow(n: Long) derives DbCodec
 
-  private def txCountForClient(clientId: UUID): Long =
+  private def txCount(idempotencyKey: String): Long =
     transact(xa):
-      sql"""
-        SELECT COUNT(*) AS n FROM transactions t
-        JOIN accounts a ON a.id = t.account_id
-        WHERE a.client_id = $clientId
-      """.query[CountRow].run().head.n
+      sql"SELECT COUNT(*) AS n FROM transactions WHERE idempotency_key = $idempotencyKey"
+        .query[CountRow]
+        .run()
+        .head
+        .n
 
   private def accountCount(clientId: UUID): Long =
     transact(xa):
@@ -69,6 +69,14 @@ object OpenAccountSpec extends ZIOSpecDefault:
         .run()
         .head
         .n
+
+  private def txCountForClient(clientId: UUID): Long =
+    transact(xa):
+      sql"""
+        SELECT COUNT(*) AS n FROM transactions t
+        JOIN accounts a ON a.id = t.account_id
+        WHERE a.client_id = $clientId
+      """.query[CountRow].run().head.n
 
   private def transactionById(id: UUID): Option[Transaction] =
     transact(xa):
@@ -87,6 +95,24 @@ object OpenAccountSpec extends ZIOSpecDefault:
 
   private def systemDate(): String = currentClock().toString
 
+  /** Moves the ledger's own clock; restoring it is unconditional. */
+  private def setClock(date: LocalDate): UIO[Unit] =
+    ZIO
+      .attemptBlocking {
+        transact(xa):
+          sql"UPDATE system_clock SET current_date_value = $date WHERE id = true".update.run()
+      }
+      .unit
+      .orDie
+
+  private def auditCount(marker: String): Long =
+    transact(xa):
+      sql"SELECT COUNT(*) AS n FROM audit_log WHERE request::text LIKE ${"%" + marker + "%"}"
+        .query[CountRow]
+        .run()
+        .head
+        .n
+
   private def seedClientAndProduct(): (UUID, UUID) =
     transact(xa):
       val clientId = corebanking.db.Ids.next()
@@ -96,6 +122,8 @@ object OpenAccountSpec extends ZIOSpecDefault:
       sql"INSERT INTO products (id, name, kind, annual_rate, term_months) VALUES ($productId, 'Spec Savings', 'savings', 0.02, NULL)".update
         .run()
       (clientId, productId)
+
+  private def freshKey(): String = s"cb06-open-account-${UUID.randomUUID()}"
 
   def spec: Spec[TestEnvironment & Scope, Any] =
     suite("OpenAccount.run")(
@@ -257,5 +285,225 @@ object OpenAccountSpec extends ZIOSpecDefault:
           accountCount(clientId) == 0L,
           txCountForClient(clientId) == 0L
         )
+      },
+      test("repeated idempotency_key returns the identical result and posts only one transaction") {
+        val (clientId, productId) = seedClientAndProduct()
+        val key = freshKey()
+        val first = decode(
+          OpenAccount
+            .run(
+              xa,
+              CoreEnv.Mock,
+              clientId.toString,
+              productId.toString,
+              "COP",
+              Some("10.00"),
+              Some(key),
+              dryRun = false
+            )
+        ).data
+        val second = decode(
+          OpenAccount
+            .run(
+              xa,
+              CoreEnv.Mock,
+              clientId.toString,
+              productId.toString,
+              "COP",
+              Some("10.00"),
+              Some(key),
+              dryRun = false
+            )
+        ).data
+        assertTrue(
+          first.openingTransactionId == second.openingTransactionId,
+          first.id == second.id,
+          first.initialDeposit == second.initialDeposit,
+          txCount(key) == 1L,
+          accountCount(clientId) == 1L
+        )
+      },
+      test("the same key on a different client is a conflict, not the first client's account") {
+        val (firstClient, productId) = seedClientAndProduct()
+        val (otherClient, otherProduct) = seedClientAndProduct()
+        val key = freshKey()
+        val original = decode(
+          OpenAccount.run(
+            xa,
+            CoreEnv.Mock,
+            firstClient.toString,
+            productId.toString,
+            "COP",
+            Some("10.00"),
+            Some(key),
+            dryRun = false
+          )
+        ).data
+        val conflict = decodeError(
+          OpenAccount.run(
+            xa,
+            CoreEnv.Mock,
+            otherClient.toString,
+            otherProduct.toString,
+            "COP",
+            Some("10.00"),
+            Some(key),
+            dryRun = false
+          )
+        )
+        assertTrue(
+          original.clientId == firstClient.toString,
+          conflict.error == "IDEMPOTENCY_KEY_CONFLICT",
+          accountCount(otherClient) == 0L,
+          txCountForClient(otherClient) == 0L,
+          accountCount(firstClient) == 1L,
+          txCount(key) == 1L
+        )
+      },
+      test("the same key on a different product is a conflict") {
+        val (clientId, productId) = seedClientAndProduct()
+        val (_, otherProduct) = seedClientAndProduct()
+        val key = freshKey()
+        OpenAccount.run(
+          xa,
+          CoreEnv.Mock,
+          clientId.toString,
+          productId.toString,
+          "COP",
+          None,
+          Some(key),
+          dryRun = false
+        )
+        val conflict = decodeError(
+          OpenAccount.run(
+            xa,
+            CoreEnv.Mock,
+            clientId.toString,
+            otherProduct.toString,
+            "COP",
+            None,
+            Some(key),
+            dryRun = false
+          )
+        )
+        assertTrue(
+          conflict.error == "IDEMPOTENCY_KEY_CONFLICT",
+          accountCount(clientId) == 1L,
+          txCount(key) == 1L
+        )
+      },
+      test("dry_run leaves the database unchanged") {
+        val (clientId, productId) = seedClientAndProduct()
+        val key = freshKey()
+        val decoded = decode(
+          OpenAccount.run(
+            xa,
+            CoreEnv.Mock,
+            clientId.toString,
+            productId.toString,
+            "COP",
+            Some("5.00"),
+            Some(key),
+            dryRun = true
+          )
+        ).data
+        assertTrue(
+          decoded.dryRun == true,
+          txCount(key) == 0L,
+          accountCount(clientId) == 0L
+        )
+      },
+      test("every call is audited exactly once, including dry runs and rejections") {
+        val (clientId, productId) = seedClientAndProduct()
+        val opened = freshKey()
+        val previewed = freshKey()
+        val rejected = freshKey()
+
+        val openedBefore = auditCount(opened)
+        OpenAccount.run(
+          xa,
+          CoreEnv.Mock,
+          clientId.toString,
+          productId.toString,
+          "COP",
+          Some("20.00"),
+          Some(opened),
+          dryRun = false
+        )
+        val openedAfter = auditCount(opened)
+
+        val previewedBefore = auditCount(previewed)
+        OpenAccount.run(
+          xa,
+          CoreEnv.Mock,
+          clientId.toString,
+          productId.toString,
+          "COP",
+          Some("20.00"),
+          Some(previewed),
+          dryRun = true
+        )
+        val previewedAfter = auditCount(previewed)
+
+        val rejectedBefore = auditCount(rejected)
+        val error = decodeError(
+          OpenAccount.run(
+            xa,
+            CoreEnv.Mock,
+            UUID.randomUUID().toString,
+            productId.toString,
+            "COP",
+            None,
+            Some(rejected),
+            dryRun = false
+          )
+        )
+        val rejectedAfter = auditCount(rejected)
+
+        assertTrue(
+          openedBefore == 0L,
+          openedAfter == 1L,
+          previewedBefore == 0L,
+          previewedAfter == 1L,
+          rejectedBefore == 0L,
+          rejectedAfter == 1L,
+          error.error == "CLIENT_NOT_FOUND"
+        )
+      },
+      test("an opening is dated by the system clock, so a backdated clock backdates the ledger") {
+        for
+          before <- ZIO.attemptBlocking(currentClock())
+          backdated = before.minusDays(30)
+          assertion <- (
+            for
+              _ <- setClock(backdated)
+              decoded <- ZIO.attemptBlocking {
+                val (clientId, productId) = seedClientAndProduct()
+                decode(
+                  OpenAccount.run(
+                    xa,
+                    CoreEnv.Mock,
+                    clientId.toString,
+                    productId.toString,
+                    "COP",
+                    Some("30.00"),
+                    None,
+                    dryRun = false
+                  )
+                ).data
+              }
+              posted <- ZIO.attemptBlocking(
+                transactionById(UUID.fromString(decoded.openingTransactionId))
+                  .getOrElse(throw new RuntimeException("no opening transaction was posted"))
+              )
+            yield assertTrue(
+              backdated != before,
+              decoded.openedOn == backdated.toString,
+              posted.bookingDate == backdated,
+              posted.valueDate == backdated
+            )
+          ).ensuring(setClock(before))
+          after <- ZIO.attemptBlocking(currentClock())
+        yield assertion && assertTrue(after == before)
       }
     ) @@ sequential @@ timeout(1.minute)
