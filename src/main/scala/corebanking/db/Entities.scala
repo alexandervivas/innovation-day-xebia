@@ -2,6 +2,7 @@ package corebanking.db
 
 import java.sql.{PreparedStatement, ResultSet, Types}
 import java.time.LocalDate
+import java.util.UUID
 
 import com.augustnagro.magnum.*
 
@@ -18,3 +19,45 @@ given localDateCodec: DbCodec[LocalDate] with
 @SqlName("system_clock")
 @Table(PostgresDbType, SqlNameMapper.CamelToSnakeCase)
 case class SystemClockRow(currentDateValue: LocalDate) derives DbCodec
+
+/** A person the bank holds accounts for. */
+@SqlName("clients")
+@Table(PostgresDbType, SqlNameMapper.CamelToSnakeCase)
+case class Client(
+    @Id id: UUID,
+    displayName: String,
+    openedOn: LocalDate,
+    email: Option[String],
+    idempotencyKey: Option[String]
+) derives DbCodec
+
+/** One client's holding of one product, in a single currency. */
+@SqlName("accounts")
+@Table(PostgresDbType, SqlNameMapper.CamelToSnakeCase)
+case class Account(
+    @Id id: UUID,
+    clientId: UUID,
+    productId: UUID,
+    kind: String,
+    openedOn: LocalDate,
+    currency: String
+) derives DbCodec
+
+/** An append-only ledger entry, booked on one date and effective on another. */
+@SqlName("transactions")
+@Table(PostgresDbType, SqlNameMapper.CamelToSnakeCase)
+case class Transaction(
+    @Id id: UUID,
+    accountId: UUID,
+    `type`: String,
+    amount: BigDecimal,
+    bookingDate: LocalDate,
+    valueDate: LocalDate,
+    reversesId: Option[UUID],
+    idempotencyKey: String
+) derives DbCodec
+
+/** Product lookup for `open_account`: existence plus the `kind` the new account inherits. */
+@SqlName("products")
+@Table(PostgresDbType, SqlNameMapper.CamelToSnakeCase)
+case class ProductRef(@Id id: UUID, kind: String) derives DbCodec
