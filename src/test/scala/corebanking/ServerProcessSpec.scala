@@ -12,8 +12,10 @@ import zio.json.*
 import zio.test.*
 import zio.test.TestAspect.*
 
+import com.augustnagro.magnum.{DbCodec, sql, transact}
+
 import corebanking.config.DbConfig
-import corebanking.db.FlywayRunner
+import corebanking.db.{Db, FlywayRunner}
 
 /**
  * CB-02 headline AC, verified at the process level rather than in-process, because the guard's
@@ -89,6 +91,11 @@ object ServerProcessSpec extends ZIOSpecDefault:
     s"""{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_audit_log","arguments":{"startTime":"$startTime"}}}"""
   private val getSystemDateCallFrame =
     """{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"get_system_date","arguments":{}}}"""
+  // Only the required arguments are sent, so the optional ones must fall back to their defaults.
+  private def createClientCallFrame(name: String): String =
+    s"""{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"create_client","arguments":{"name":"$name"}}}"""
+  private def openAccountCallFrame(clientId: String, productId: String): String =
+    s"""{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"open_account","arguments":{"clientId":"$clientId","productId":"$productId","currency":"COP"}}}"""
 
   private val dbEnvKeys = Set("DATABASE_URL", "POSTGRES_USER", "POSTGRES_PASSWORD")
 
@@ -139,8 +146,8 @@ object ServerProcessSpec extends ZIOSpecDefault:
             "ON CONFLICT (id) DO NOTHING"
         )
         stmt.execute(
-          "INSERT INTO accounts (id, client_id, product_id, kind, opened_on) " +
-            s"VALUES ('$SeededLoanAccountId', '$SeededClientId', '$SeededLoanProductId', 'loan', DATE '$SeededClientOpenedOn') " +
+          "INSERT INTO accounts (id, client_id, product_id, kind, opened_on, currency) " +
+            s"VALUES ('$SeededLoanAccountId', '$SeededClientId', '$SeededLoanProductId', 'loan', DATE '$SeededClientOpenedOn', 'COP') " +
             "ON CONFLICT (id) DO NOTHING"
         )
         stmt.execute(
@@ -226,6 +233,17 @@ object ServerProcessSpec extends ZIOSpecDefault:
       writeFrame(getLoanScheduleSeededCallFrame)
       readUntil("\"id\":9")
 
+      writeFrame(createClientCallFrame(s"Wire Client ${java.util.UUID.randomUUID()}"))
+      readUntil("\"id\":10")
+      val clientId = lines
+        .find(_.contains("\"id\":10"))
+        .flatMap(decodeEnvelope[CreatedClientEnvelope](_).toOption)
+        .map(_.data.id)
+        .getOrElse(throw new RuntimeException("create_client returned no client id over the wire"))
+
+      writeFrame(openAccountCallFrame(clientId, savingsProductId()))
+      readUntil("\"id\":11")
+
       proc.getOutputStream.close()
 
       // Drains any remaining output to EOF so "every stdout line is JSON" covers the whole
@@ -269,6 +287,54 @@ object ServerProcessSpec extends ZIOSpecDefault:
   private object AuditEnvelope:
     given JsonDecoder[AuditEntryDecoded] = DeriveJsonDecoder.gen[AuditEntryDecoded]
     given JsonDecoder[AuditEnvelope] = DeriveJsonDecoder.gen[AuditEnvelope]
+
+  private def decodeEnvelope[A](line: String)(using JsonDecoder[A]): Either[String, A] =
+    line.fromJson[ToolCallResponse].flatMap { response =>
+      response.result.content.headOption
+        .toRight("no content item in tools/call result")
+        .flatMap(_.text.fromJson[A])
+    }
+
+  final private case class CreatedClientEnvelopeData(
+      id: String,
+      name: String,
+      email: Option[String],
+      openedOn: String,
+      dryRun: Boolean
+  )
+  final private case class CreatedClientEnvelope(env: String, data: CreatedClientEnvelopeData)
+
+  private object CreatedClientEnvelope:
+    given JsonDecoder[CreatedClientEnvelopeData] = DeriveJsonDecoder.gen[CreatedClientEnvelopeData]
+    given JsonDecoder[CreatedClientEnvelope] = DeriveJsonDecoder.gen[CreatedClientEnvelope]
+
+  final private case class AccountEnvelopeData(
+      id: String,
+      clientId: String,
+      productId: String,
+      currency: String,
+      openedOn: String,
+      openingTransactionId: String,
+      initialDeposit: String,
+      dryRun: Boolean
+  )
+  final private case class AccountEnvelope(env: String, data: AccountEnvelopeData)
+
+  private object AccountEnvelope:
+    given JsonDecoder[AccountEnvelopeData] = DeriveJsonDecoder.gen[AccountEnvelopeData]
+    given JsonDecoder[AccountEnvelope] = DeriveJsonDecoder.gen[AccountEnvelope]
+
+  final private case class ProductIdRow(id: java.util.UUID) derives DbCodec
+
+  /** The savings product seeded by V2, the product `open_account` is exercised against. */
+  private def savingsProductId(): String =
+    transact(Db.transactor(DbConfig.fromEnv())):
+      sql"SELECT id FROM products WHERE kind = 'savings' ORDER BY id LIMIT 1"
+        .query[ProductIdRow]
+        .run()
+        .head
+        .id
+        .toString
 
   final private case class GetSystemDateEnvelope(env: String, data: GetSystemDateData)
   final private case class GetSystemDateData(currentDate: String)
@@ -323,13 +389,19 @@ object ServerProcessSpec extends ZIOSpecDefault:
         )
       },
       test(
-        "CORE_ENV=sandbox happy path: clean stdio wire, ping/get_audit_log/get_system_date results, and proof the ping call was audited"
+        "CORE_ENV=sandbox happy path: clean stdio wire, ping/get_audit_log/get_system_date/create_client/open_account results, and proof the ping call was audited"
       ) {
         for
           outcome <- runHappyPath()
           pingLine = outcome.stdoutLines.find(_.contains("\"id\":2"))
           auditLine = outcome.stdoutLines.find(_.contains("\"id\":3"))
           getSystemDateLine = outcome.stdoutLines.find(_.contains("\"id\":4"))
+          createClientLine = outcome.stdoutLines.find(_.contains("\"id\":10"))
+          openAccountLine = outcome.stdoutLines.find(_.contains("\"id\":11"))
+          createdClient = createClientLine.flatMap(
+            decodeEnvelope[CreatedClientEnvelope](_).toOption
+          )
+          openedAccount = openAccountLine.flatMap(decodeEnvelope[AccountEnvelope](_).toOption)
         yield assertTrue(
           outcome.stdoutLines.nonEmpty,
           outcome.stdoutLines.forall(_.startsWith("{")),
@@ -363,7 +435,17 @@ object ServerProcessSpec extends ZIOSpecDefault:
             }
             .exists(env =>
               env.env == "sandbox" && env.data.currentDate.matches("""\d{4}-\d{2}-\d{2}""")
-            )
+            ),
+          createdClient.exists(envelope =>
+            envelope.env == "sandbox" && envelope.data.email.isEmpty && !envelope.data.dryRun
+          ),
+          openedAccount.exists(envelope =>
+            envelope.env == "sandbox" &&
+              envelope.data.currency == "COP" &&
+              envelope.data.initialDeposit == "0.00" &&
+              !envelope.data.dryRun &&
+              createdClient.exists(_.data.id == envelope.data.clientId)
+          )
         )
       },
       test("CORE_ENV=sandbox: get_client on an unknown id comes back as a tool-call error") {

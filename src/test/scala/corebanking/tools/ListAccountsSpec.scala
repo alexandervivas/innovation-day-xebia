@@ -32,10 +32,10 @@ object ListAccountsSpec extends ZIOSpecDefault:
       .run()
     sql"INSERT INTO clients (id, display_name, opened_on) VALUES ($EmptyClientId, 'No Accounts', DATE '2026-01-01')".update
       .run()
-    sql"INSERT INTO accounts (id, client_id, product_id, kind, opened_on) VALUES ($AccountId, $ClientId, $ProductId, 'savings', DATE '2026-01-05')".update
+    sql"INSERT INTO accounts (id, client_id, product_id, kind, opened_on, currency) VALUES ($AccountId, $ClientId, $ProductId, 'savings', DATE '2026-01-05', 'COP')".update
       .run()
     // No transactions posted yet: balance must be zero, not null.
-    sql"INSERT INTO accounts (id, client_id, product_id, kind, opened_on) VALUES ($NoTxAccountId, $ClientId, $ProductId, 'savings', DATE '2026-01-20')".update
+    sql"INSERT INTO accounts (id, client_id, product_id, kind, opened_on, currency) VALUES ($NoTxAccountId, $ClientId, $ProductId, 'savings', DATE '2026-01-20', 'COP')".update
       .run()
     // Effective today: counted in the balance.
     sql"INSERT INTO transactions (id, account_id, type, amount, booking_date, value_date, idempotency_key) VALUES ($TxPastId, $AccountId, 'deposit', 100.00, DATE '2026-01-06', DATE '2026-01-06', 'list-accounts-past')".update

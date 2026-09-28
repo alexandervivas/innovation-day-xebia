@@ -17,6 +17,8 @@ import corebanking.tools.{
   AuditedFailure,
   AuditLog,
   AuditLogSummary,
+  CreateClient,
+  CreateClientRequest,
   GetAuditLog,
   GetAuditLogRequest,
   GetClient,
@@ -24,6 +26,8 @@ import corebanking.tools.{
   GetSystemDate,
   GetTransactions,
   ListAccounts,
+  OpenAccount,
+  OpenAccountRequest,
   Ping,
   ToolResponse
 }
@@ -208,3 +212,100 @@ object Server extends McpServerApp[Stdio, Server.type]:
   )
   def getLoanSchedule(loanId: UUID): String =
     connect(transactor)(GetLoanSchedule.response(coreEnv, loanId))
+
+  @Tool(
+    name = Some("create_client"),
+    description = Some(
+      "Creates a client and logs the call to the audit trail. A repeated idempotency_key " +
+        "returns the original client unchanged, and dry_run has no effect on that path."
+    ),
+    readOnlyHint = Some(false)
+  )
+  def createClient(
+      @Param(description = "Client display name") name: String,
+      @Param(description = "Client email address, if known", required = false)
+      email: Option[String] = None,
+      @Param(
+        description = "Caller-supplied key; a repeated key returns the original result unchanged",
+        required = false
+      )
+      idempotencyKey: Option[String] = None,
+      @Param(
+        description = "When true, computes the result without writing to the database",
+        required = false
+      )
+      dryRun: Boolean = false
+  ): Try[String] =
+    val requestJson = CreateClientRequest(name, email, idempotencyKey, dryRun).toJson
+    Try(CreateClient.run(transactor, coreEnv, name, email, idempotencyKey, dryRun))
+      .recoverWith {
+        case NonFatal(error) =>
+          AuditLog.record(
+            transactor,
+            toolName = "create_client",
+            env = coreEnv,
+            requestJson = requestJson,
+            responseJson = AuditedFailure(error.getMessage).toJson,
+            dryRun = dryRun
+          )
+          Failure(error)
+      }
+
+  @Tool(
+    name = Some("open_account"),
+    description = Some(
+      "Opens an account for a client against a product and posts the opening transaction. " +
+        "A repeated idempotency_key returns the original account and transaction unchanged, " +
+        "and dry_run has no effect on that path."
+    ),
+    readOnlyHint = Some(false)
+  )
+  def openAccount(
+      @Param(description = "Existing client id") clientId: String,
+      @Param(description = "Existing product id") productId: String,
+      @Param(description = "ISO currency code: COP, USD, or EUR") currency: String,
+      @Param(description = "Opening balance; defaults to 0.00", required = false)
+      initialDeposit: Option[String] = None,
+      @Param(
+        description = "Caller-supplied key; a repeated key returns the original result unchanged",
+        required = false
+      )
+      idempotencyKey: Option[String] = None,
+      @Param(
+        description = "When true, computes the result without writing to the database",
+        required = false
+      )
+      dryRun: Boolean = false
+  ): Try[String] =
+    val requestJson =
+      OpenAccountRequest(
+        clientId,
+        productId,
+        currency,
+        initialDeposit,
+        idempotencyKey,
+        dryRun
+      ).toJson
+    Try(
+      OpenAccount.run(
+        transactor,
+        coreEnv,
+        clientId,
+        productId,
+        currency,
+        initialDeposit,
+        idempotencyKey,
+        dryRun
+      )
+    ).recoverWith {
+      case NonFatal(error) =>
+        AuditLog.record(
+          transactor,
+          toolName = "open_account",
+          env = coreEnv,
+          requestJson = requestJson,
+          responseJson = AuditedFailure(error.getMessage).toJson,
+          dryRun = dryRun
+        )
+        Failure(error)
+    }

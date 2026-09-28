@@ -40,7 +40,7 @@ object GetTransactionsSpec extends ZIOSpecDefault:
       .run()
     sql"INSERT INTO clients (id, display_name, opened_on) VALUES ($ClientId, 'Katherine Johnson', DATE '2026-01-01')".update
       .run()
-    sql"INSERT INTO accounts (id, client_id, product_id, kind, opened_on) VALUES ($AccountId, $ClientId, $ProductId, 'savings', DATE '2026-01-01')".update
+    sql"INSERT INTO accounts (id, client_id, product_id, kind, opened_on, currency) VALUES ($AccountId, $ClientId, $ProductId, 'savings', DATE '2026-01-01', 'COP')".update
       .run()
     sql"INSERT INTO transactions (id, account_id, type, amount, booking_date, value_date, idempotency_key) VALUES ($TxEarlyId, $AccountId, 'deposit', 100.00, DATE '2026-01-05', DATE '2026-01-05', 'get-tx-early')".update
       .run()
